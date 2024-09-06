@@ -53,6 +53,7 @@ parser.add_argument('--num_heads', type=int, default=8, help='Number of multi-he
 args = parser.parse_args()
 All_Results = ['Datasets', 'FC_layer']
 if __name__ == '__main__':
+    print("start main")
     config = Setup(args)  # configuration dictionary
     config['device'] = Initialization(config)
     print_title(config['problem'])
