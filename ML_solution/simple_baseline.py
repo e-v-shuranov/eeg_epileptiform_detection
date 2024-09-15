@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import pandas as pd
+import csv
 
 device = "cuda:1" if torch.cuda.is_available() else "cpu"
 
@@ -44,15 +45,23 @@ class TEST_TUEV(torch.utils.data.Dataset):
     def __init__(self, path): #, tuh_filtered_stat_vals):
         super(TEST_TUEV, self).__init__()
         #read csv
-        self.data = pd.read_csv(path, sep=',')
+        # self.data = pd.read_csv(path, sep=',')
+        file = open(path, "r")
+        # self.data = list(csv.reader(file, delimiter=","))[0]
+        reader = csv.DictReader(file)
+        self.data = list(reader)
+
+        file.close()
+        print("len(self.data):",len(self.data))
 
     def __len__(self):
         return len(self.data)
+        # self.data.shape[1]
 
     def __getitem__(self, idx):
-        fname = self.data.iloc[idx].path
+        fname = self.data[idx]["path"]
         data = np.load(fname, allow_pickle=True).item()
-        label = self.data.iloc[idx].label
+        label = self.data[idx]["label"]
         return {'data': torch.from_numpy(np.array(data)).float(),
                 'label': torch.from_numpy(np.array(label)).float()}
 
@@ -101,16 +110,16 @@ def main():
     #
     # print(output.size())
     loss_function = nn.BCEWithLogitsLoss()
-    batch_sz = 16
+    batch_sz = 2
 
-    val_dataset  = TEST_TUEV('/home/eshuranov/projects/eeg_stud/EEG_validation.csv')
-    train_dataset  = TEST_TUEV('/home/eshuranov/projects/eeg_stud/EEG_train.csv')
+    # val_dataset  = TEST_TUEV('/home/eshuranov/projects/eeg_stud/EEG_validation.csv')
+    train_dataset  = TEST_TUEV('/home/eshuranov/projects/eeg_epileptiform_detection/EEG2Rep/Dataset/out_tuev/row_list.csv')
 
 
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_sz, shuffle=True, num_workers=1,
                                                drop_last=True)
-    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_sz, shuffle=True, num_workers=1,
-                                               drop_last=True)
+    # val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_sz, shuffle=True, num_workers=1,
+    #                                            drop_last=True)
     steps = 0
     for epoch in range(20):
         sum_loss = 0
@@ -126,7 +135,7 @@ def main():
             try:
                 with torch.no_grad():
                     loss = 0
-                    for batch in val_loader:
+                    for batch in train_loader:
                         output = model(batch)
                         loss += torch.nn.CrossEntropyLoss()(output, batch['label'])
                     print('Val Loss: {}\t'.format(loss))
