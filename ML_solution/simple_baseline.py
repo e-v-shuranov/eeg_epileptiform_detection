@@ -123,7 +123,7 @@ def main():
         sum_loss = 0
         ii = 0
         for batch in train_loader:
-            if batch['data'].numpy().min() == float('-inf') or batch['data'].numpy().min() == float('inf'):
+            if batch['data'].numpy().min() == float('-inf') or batch['data'].numpy().max() == float('inf'):
                 continue
             optim.zero_grad()
             output = model(batch['data'].to(device))
@@ -146,7 +146,7 @@ def main():
                 with torch.no_grad():
                     sum_vloss = 0
                     for batch in train_loader:
-                        if batch['data'].numpy().min() == float('-inf') or batch['data'].numpy().min() == float('inf'):
+                        if batch['data'].numpy().min() == float('-inf') or batch['data'].numpy().max() == float('inf'):
                             continue
                         output = model(batch['data'].to(device))
                         loss = loss_function(output, batch['label'].float().to(device))
@@ -157,12 +157,9 @@ def main():
             except:
                 raise
 
-# def infer_model():
-#     model = simple_EEGNet().to(device)
-#
-#     model.load_state_dict(torch.load(last_step), strict=False)
 
 
 if __name__ == '__main__':
     print("main started")
+
     main()
