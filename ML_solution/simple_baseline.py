@@ -3,8 +3,11 @@ import torch.nn as nn
 import numpy as np
 import pandas as pd
 import csv
+import random
 
-device = "cuda:1" if torch.cuda.is_available() else "cpu"
+
+
+device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 num_classes = 6
 class simple_EEGNet(nn.Module):
@@ -60,89 +63,104 @@ class TEST_TUEV(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         fname = self.data[idx]["path"]
-        data = np.load(fname, allow_pickle=True).item()
-        label = self.data[idx]["label"]
-        return {'data': torch.from_numpy(np.array(data)).float(),
-                'label': torch.from_numpy(np.array(label)).float()}
+        data = np.load(fname, allow_pickle=True)
+        isnan = np.isnan(data)
+        if sum(sum(isnan))>0:
+            print("data:", data)
 
-class TEST_TUEV_old(torch.utils.data.Dataset):
-    def __init__(self, path): #, tuh_filtered_stat_vals):
-        super(TEST_TUEV, self).__init__()
-        #read csv
-        df = pd.read_csv(path, sep=',')
-        df = df.rename(columns={'FFT-image': 'FFT_image'})
-        tmp_df = pd.DataFrame(np.zeros((len(df.FFT_image_signal_0), 96), float),
-                              columns=[f'FFT_image_signal_{index}' for index in range(96)])
-        for index in range(len(df.FFT_image_signal_0)):
-            tmp_df.iloc[index] = np.array(df.FFT_image[index][1:-1].split(), float)
-            if index%10000 == 0:
-                print("progress:", index,len(df.FFT_image))
-            if index> 0 and index%30000 == 0:
-                break
-        # df.drop('FFT_image', axis=1)
-        self.data = pd.concat([df['channel-number'], df['window_start'], tmp_df], axis=1)
-        self.label = my_get_dummies(df['label'])
+        sel_row = random.randint(0, data.shape[0]-1)
+        label = int(self.data[idx]["label"])
+        label_one_hot =torch.zeros(num_classes+1)
+        label_one_hot[label] = 1
+        return {'data': torch.from_numpy(np.array(data[sel_row])).float(),
+                'label': torch.from_numpy(np.array(label_one_hot)).long()}
 
+def set_random_state(random_state:int=0):
+    """Initialize random generators.
 
-    def __len__(self):
-        return len(self.label)
+    Parameters
+    ==========
+    random_state : int = 0
+        Determines random number generation for centroid initialization.
+        Use an int to make the randomness deterministic.
+    """
+    torch.manual_seed(random_state)
+    random.seed(random_state)
+    np.random.seed(random_state)
 
-    def __getitem__(self, idx):
-        data = self.data.iloc[idx]
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(random_state)
+        torch.cuda.manual_seed(random_state)
 
-        label = self.label.iloc[idx]
-        return {'data': torch.from_numpy(np.array(data)).float(),
-                'label': torch.from_numpy(np.array(label)).float()}
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
 def main():
-    # Example usage
-    # loss = nn.BCEWithLogitsLoss()
-    # input = torch.randn(3, requires_grad=True)
-    # target = torch.empty(3).random_(2)
-    #
-    # output = loss(input, target)
-    # output.backward()
-    # print(input)
+    random_state = 42
+    set_random_state(random_state)
 
     model = simple_EEGNet().to(device)
     # input_data = torch.randn(16, 1, 2500)  # batch_size, channels, seq_length
-    # output = model(input_data)
-    #
-    # print(output.size())
-    loss_function = nn.BCEWithLogitsLoss()
-    batch_sz = 2
 
-    # val_dataset  = TEST_TUEV('/home/eshuranov/projects/eeg_stud/EEG_validation.csv')
+    loss_function = nn.BCEWithLogitsLoss()
+    batch_sz = 16
+
+    val_dataset  = TEST_TUEV('/home/eshuranov/projects/eeg_epileptiform_detection/EEG2Rep/Dataset/out_tuev_eval/row_list.csv')
     train_dataset  = TEST_TUEV('/home/eshuranov/projects/eeg_epileptiform_detection/EEG2Rep/Dataset/out_tuev/row_list.csv')
 
 
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_sz, shuffle=True, num_workers=1,
                                                drop_last=True)
-    # val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_sz, shuffle=True, num_workers=1,
-    #                                            drop_last=True)
+    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_sz, shuffle=True, num_workers=1,
+                                               drop_last=True)
+    lr_d = 1e-3     #1e-6   #
+    optim = torch.optim.AdamW(model.parameters(), lr=lr_d) #, weight_decay=1)
+
+
+
     steps = 0
-    for epoch in range(20):
+    for epoch in range(2000):
         sum_loss = 0
+        ii = 0
         for batch in train_loader:
+            if batch['data'].numpy().min() == float('-inf') or batch['data'].numpy().min() == float('inf'):
+                continue
+            optim.zero_grad()
             output = model(batch['data'].to(device))
 
-            loss = loss_function(output, batch['label'].to(device))
+            loss = loss_function(output, batch['label'].float().to(device))
+
             sum_loss += loss.item()
+            # print("tmp Epoch: ", epoch,"ii: ", ii, "loss: ", loss.item(), "sum_loss: ", sum_loss)
+            ii +=1
+            # if epoch>-1 and ii>1105:
+            #     print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
             loss.backward()
+            optim.step()
+            # scheduler.step()
+
         steps += 1
-        print("Epoch: ",epoch,"sum_loss: ", loss)
-        if steps != 0 and steps % 5 == 0:
+        print("Epoch: ",epoch,"sum_loss: ", sum_loss)
+        if steps != 0 and steps % 10 == 0:
             try:
                 with torch.no_grad():
-                    loss = 0
+                    sum_vloss = 0
                     for batch in train_loader:
-                        output = model(batch)
-                        loss += torch.nn.CrossEntropyLoss()(output, batch['label'])
-                    print('Val Loss: {}\t'.format(loss))
+                        if batch['data'].numpy().min() == float('-inf') or batch['data'].numpy().min() == float('inf'):
+                            continue
+                        output = model(batch['data'].to(device))
+                        loss = loss_function(output, batch['label'].float().to(device))
+                        sum_vloss += loss.item()
+                    print('Val Loss: {}\t'.format(sum_loss))
+                    Path = '/home/eshuranov/projects/eeg_epileptiform_detection' + str(epoch) + '_step' + str(steps) + '_of_' + str(int(len(train_loader))) + '_loss_' + str(sum_loss) + '_vloss_' + str(sum_vloss)+ '.pt'
+                    torch.save(model.state_dict(), Path)
             except:
                 raise
 
-
+# def infer_model():
+#     model = simple_EEGNet().to(device)
+#
+#     model.load_state_dict(torch.load(last_step), strict=False)
 
 
 if __name__ == '__main__':
