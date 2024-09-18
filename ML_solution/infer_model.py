@@ -107,6 +107,7 @@ def convert_to_fft(window_start, window_end, window_step, channel,
     return np.array(fft_data)
 
 
+
 def infer_model(model_path, edf_path,parameters):
     model = simple_EEGNet().to(device)
     model.load_state_dict(torch.load(model_path), strict=False)
@@ -117,21 +118,128 @@ def infer_model(model_path, edf_path,parameters):
     end = -1
 
     for channel in range(22):
-        arr = convert_to_fft(start, end, 0.5, channel, 1, 96, 250, edf_path,parameters)
+        arr = convert_to_fft(start, end, 0.5, channel, 1, 96, 250, edf_path, parameters)
+        with torch.no_grad():
+            if arr.min() == float('-inf') or arr.max() == float('inf'):
+                continue
+            output = model(torch.from_numpy(arr.float().to(device)))
+
+        Path = '/home/eshuranov/projects/eeg_epileptiform_detection/output/' + fname + '_chanel_' + str(channel) + '.csv'
+
+        with open(Path, 'w', newline='') as output_file:
+            write = csv.writer(output_file)
+            write.writerow(output)
+            write.writerow(output.argmax(dim = 1))
+            write.writerow(np.arange(start, end, 0.5).tolist())
+
+
+
+def montage_extract_signal(f, channel, start, stop):
+    """
+    f - opened edf file.
+    channel - montage
+    start - start of the window in seconds.
+    stop - end of the window in seconds.
+    """
+    signal = np.array(f.readSignal(channel))
+    if start > len(signal) or stop > len(signal):
+        return [signal, True]
+    else:
+        return [signal[start:stop], False]
+
+def montage_convert_to_fft(window_start, window_end, window_step, fft_min_freq, fft_max_freq, sampling_frequency, file_path):
+    """
+    Split an interval into 1 second intervals with 0.5 second overlap, applying FFT.
+
+    parmas:
+    window_start - the beginning of interval in seconds.
+    window_end - the end of interval in seconds.  if window_end == -1 then till the end of file
+    window_step - the overlap in seconds.
+    channel - is already some montage chanel
+    fft_min_freq - the min frequency.
+    fft_max_freq - the max ferquency.
+    sampling_ferquency - the frequency of the edf file.
+    file_path - the path to the edf file.
+
+    return:
+    np.array - interval splitted into 1 secons segments with 0.5 second overlap, with FFT applied.
+    """
+    pipeline = Pipeline([FFT(), Slice(fft_min_freq, fft_max_freq), Magnitude(), Log10()])
+
+
+    # if window_end == -1:
+    #     stop = -1
+
+    lst = file_path.split('/')
+    file_name = lst[-1][:-4]
+
+
+
+    f = pyedflib.EdfReader(file_path)
+    signal_labels = f.getSignalLabels()
+    fft_by_chanels = []
+
+    for ch in range(len(signal_labels)):
+        start, step = int(np.floor(window_start * sampling_frequency)), int(np.floor(window_step * sampling_frequency))
+        stop = start + step
+        if window_end == -1:
+            fft_data = []
+            is_eof = False
+            while not is_eof:
+                [extracted_signal_from_electrode_1,is_eof] = montage_extract_signal(f, ch, start, stop)
+                if is_eof:
+                    break
+
+                signal_window = np.array(extracted_signal_from_electrode_1)
+                fft_window = pipeline.apply(signal_window)
+
+                fft_data.append(fft_window)
+                start, stop = start + step, stop + step
+                # print("fft chanel:", ch, len(signal_labels),start, stop)
+        else:
+            fft_data = []
+            while stop <= window_end * sampling_frequency:
+                [extracted_signal_from_electrode_1,is_eof] = montage_extract_signal(f, ch, start, stop)
+
+                signal_window = np.array(extracted_signal_from_electrode_1)
+                fft_window = pipeline.apply(signal_window)
+
+                fft_data.append(fft_window)
+                start, stop = start + step, stop + step
+        print("ch:", ch)
+        fft_by_chanels.append(fft_data)
+
+    f._close()
+    del f
+
+    return np.array(fft_by_chanels)
+
+
+def montage_infer_model(model_path, edf_path):
+    model = simple_EEGNet().to(device)
+    model.load_state_dict(torch.load(model_path), strict=False)
+    fname = os.path.basename(edf_path)
+    # arr = convert_to_fft(29.1, 38.1, 0.5, 0, 1, 96, 250, test_file_path_edf,parameters)
+    # print(f'arr: {arr},\nlen(arr): {len(arr)},\nlen(arr[0]): {len(arr[0])}')
+    start = 0
+    end = -1
+
+    arr = montage_convert_to_fft(start, end, 0.5, 1, 96, 500, edf_path)
+    for channel in range(len(arr)):
         results = []
         with torch.no_grad():
             # for n_frame in range(len(arr)):
-            if arr.min() == float('-inf') or arr.max() == float('inf'):
+            if arr[channel].min() == float('-inf') or arr[channel].max() == float('inf'):
                 continue
                 # torch.from_numpy(np.array(data[sel_row])).float()
-            output = model(torch.from_numpy(arr).float().to(device))
+            output = model(torch.from_numpy(arr[channel]).float().to(device))
             # print('output: {}\t'.format(output))
             # results.append(output)
 
 
         Path = '/home/eshuranov/projects/eeg_epileptiform_detection/output/' + fname + '_chanel_' + str(
             channel) + '.csv'
-        range(len(output), Path)
+
         with open(Path, 'w', newline='') as output_file:
             write = csv.writer(output_file)
             write.writerow(output)
@@ -143,11 +251,14 @@ def infer_model(model_path, edf_path,parameters):
 
 if __name__ == '__main__':
     print("infer started")
-    parameters = pd.read_csv('/home/eshuranov/projects/eeg_epileptiform_detection/EEG2Rep/Dataset/parameters.csv',
+    # parameters = pd.read_csv('/home/eshuranov/projects/eeg_epileptiform_detection/EEG2Rep/Dataset/parameters.csv',
+    #                          index_col=['parameter'])
+    parameters = pd.read_csv('/home/eshuranov/projects/eeg_epileptiform_detection/data/mbt sample/parameters_mtb.csv',
                              index_col=['parameter'])
     # test_file_path_edf = '/home/eshuranov/projects/eeg_epileptiform_detection/EEG2Rep/Dataset/TUEV/tuev/edf/train/aaaaablw/aaaaablw_00000001.edf'
-    test_file_path_edf = '/home/eshuranov/projects/eeg_epileptiform_detection/EEG2Rep/Dataset/TUEV/tuev/edf/train/aaaaaabs/aaaaaabs_00000001.edf'
+    # test_file_path_edf = '/home/eshuranov/projects/eeg_epileptiform_detection/EEG2Rep/Dataset/TUEV/tuev/edf/train/aaaaaabs/aaaaaabs_00000001.edf'
     test_file_path_edf = '/home/eshuranov/projects/eeg_epileptiform_detection/data/mbt sample/sample mbt.edf'
 
     model_path ='/home/eshuranov/projects/eeg_epileptiform_detection1719_step1720_of_1216_loss_196.19630297645926.pt'
-    infer_model(model_path, test_file_path_edf,parameters)
+    # infer_model(model_path, test_file_path_edf,parameters)
+    montage_infer_model(model_path, test_file_path_edf)
