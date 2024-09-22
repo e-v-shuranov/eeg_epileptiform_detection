@@ -78,9 +78,13 @@ def convert_to_fft(window_start, window_end, window_step, channel,
     # print("montage_list: ", montage_list)
     # print("montage_list[channel]: ", montage_list[channel])
     electrode_list = re.split('-', montage_list[channel])
+    import mne
+    f = mne.io.read_raw_edf(file_path)
+    f.load_data()
+    signal_labels = f.ch_names
+    # f = pyedflib.EdfReader(file_path)
+    # signal_labels = f.getSignalLabels()
 
-    f = pyedflib.EdfReader(file_path)
-    signal_labels = f.getSignalLabels()
     if window_end == -1:
         is_eof = False
         while not is_eof:
@@ -144,7 +148,8 @@ def montage_extract_signal(f, channel, start, stop):
     start - start of the window in seconds.
     stop - end of the window in seconds.
     """
-    signal = np.array(f.readSignal(channel))
+    # signal = np.array(f.readSignal(channel))
+    signal = f._data[:, channel]
     if start > len(signal) or stop > len(signal):
         return [signal, True]
     else:
@@ -257,5 +262,5 @@ if __name__ == '__main__':
     model_path ='/home/eshuranov/projects/eeg_epileptiform_detection1719_step1720_of_1216_loss_196.19630297645926.pt'
     # infer_model(model_path, test_file_path_edf,parameters)
 
-    # montage_infer_model(model_path, test_file_path_edf)
+    montage_infer_model(model_path, test_file_path_edf)
 

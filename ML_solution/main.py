@@ -1,1 +1,2 @@
-print("test hi1")
+import pyedflib
+print("test hi2")
