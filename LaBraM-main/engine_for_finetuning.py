@@ -151,7 +151,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
 
 @torch.no_grad()
-def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True):
+def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True, is_mbt = False):
     input_chans = None
     if ch_names is not None:
         input_chans = utils.get_input_chans(ch_names)
@@ -167,6 +167,8 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
     model.eval()
     pred = []
     true = []
+    correct = 0
+    count_all = 0
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
         EEG = batch[0]
         target = batch[-1]
@@ -179,15 +181,27 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
         # compute output
         with torch.cuda.amp.autocast():
             output = model(EEG, input_chans=input_chans)
-            loss = criterion(output, target)
-        
-        if is_binary:
-            output = torch.sigmoid(output).cpu()
+
+        if is_mbt:
+            output = (output.argmax(dim=1)<3).float()
+            target =  (target>0).float()
+            loss = criterion(output, target) # 0,1,3 - sizors  4,5,6 - artefacts
+            output = output.int().cpu()
+            target = target.int()
+            correct += (output == target.cpu()).int().sum()
+            count_all += output.size(0)
         else:
-            output = output.cpu()
+            loss = criterion(output, target)
+            if is_binary:
+                output = torch.sigmoid(output).cpu()
+            else:
+                output = output.cpu()
+
+
         target = target.cpu()
 
-        results = utils.get_metrics(output.numpy(), target.numpy(), metrics, is_binary)
+
+        results = utils.get_metrics(output.numpy(), target.numpy(), metrics, (is_binary or is_mbt))
         pred.append(output)
         true.append(target)
 
@@ -204,6 +218,8 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
     pred = torch.cat(pred, dim=0).numpy()
     true = torch.cat(true, dim=0).numpy()
 
-    ret = utils.get_metrics(pred, true, metrics, is_binary, 0.5)
+    ret = utils.get_metrics(pred, true, metrics, (is_binary or is_mbt), 0.5)
     ret['loss'] = metric_logger.loss.global_avg
+    if is_mbt:
+        print("mbt:  correct: ", correct, "All: ", count_all, "acc: ", correct/count_all)
     return ret

@@ -46,7 +46,7 @@ def prepare_mbt_dataset(root):
 def get_mbt_dataset(args):
     # if args.dataset == 'mbt':
     if args.dataset == 'TUEV':
-        test_dataset = prepare_mbt_dataset("/home/eshuranov/projects/eeg_epileptiform_detection/data/mbt_data_without_epilepcy/processed")
+        test_dataset = prepare_mbt_dataset("/home/eshuranov/projects/eeg_epileptiform_detection/data/mbt_data_without_epilepcy/processed_before_remove_P4-O2")
         # ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
         #             'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
         # mbt_chOrder_standard = ['Fp2-F8', 'F8 - T2', 'T2 - T4', 'T4 - T6', 'T6-O2', 'Fp1-F7', 'F7 - T1', 'T1 - T3',
@@ -55,8 +55,9 @@ def get_mbt_dataset(args):
         new_ch_names = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1", "FP2-F8", "F8-T8", "T8-P8", "P8-O2", "FP1-F3", "F3-C3",
                         "C3-P3", "P3-O1", "FP2-F4", "F4-C4", "C4-P4", "P4-O2"]
         # ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
-        args.nb_classes = 1
-        metrics = ["accuracy", "balanced_accuracy", "cohen_kappa", "f1_weighted"]
+        args.nb_classes = 6
+        metrics = ["accuracy", "balanced_accuracy"]
+    # metrics = ["accuracy", "balanced_accuracy", "cohen_kappa", "f1_weighted"]
     return test_dataset, new_ch_names, metrics
 
 
@@ -302,135 +303,10 @@ def main(args, ds_init):
         # print(f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
 
         test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
-                              is_binary=args.nb_classes == 1)
+                              is_binary=args.nb_classes == 1, is_mbt = True)
         print(f"======Accuracy: on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%")
 
         exit(0)
-
-
-
-def main1(args):
-    print(args)
-
-    device = torch.device(args.device)
-
-    # fix the seed for reproducibility
-    seed = args.seed + utils.get_rank()
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-
-    cudnn.benchmark = True
-
-    # dataset_train, dataset_test, dataset_val: follows the standard format of torch.utils.data.Dataset.
-    # ch_names: list of strings, channel names of the dataset. It should be in capital letters.
-    # metrics: list of strings, the metrics you want to use. We utilize PyHealth to implement it.
-    dataset_test, ch_names, metrics = get_dataset(args)
-
-    model = get_models(args)
-
-    patch_size = model.patch_size
-    print("Patch size = %s" % str(patch_size))
-    args.window_size = (1, args.input_size // patch_size)
-    args.patch_size = patch_size
-
-    if True:  # args.distributed:
-        num_tasks = utils.get_world_size()
-        global_rank = utils.get_rank()
-        # sampler_train = torch.utils.data.DistributedSampler(
-        #     dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
-        # )
-        # print("Sampler_train = %s" % str(sampler_train))
-        if args.dist_eval:
-            # if len(dataset_val) % num_tasks != 0:
-            #     print('Warning: Enabling distributed evaluation with an eval dataset not divisible by process number. '
-            #           'This will slightly alter validation results as extra duplicate entries are added to achieve '
-            #           'equal num of samples per-process.')
-            # sampler_val = torch.utils.data.DistributedSampler(
-            #     dataset_val, num_replicas=num_tasks, rank=global_rank, shuffle=False)
-            if type(dataset_test) == list:
-                sampler_test = [torch.utils.data.DistributedSampler(
-                    dataset, num_replicas=num_tasks, rank=global_rank, shuffle=False) for dataset in dataset_test]
-            else:
-                sampler_test = torch.utils.data.DistributedSampler(
-                    dataset_test, num_replicas=num_tasks, rank=global_rank, shuffle=False)
-        else:
-            # sampler_val = torch.utils.data.SequentialSampler(dataset_val)
-            sampler_test = torch.utils.data.SequentialSampler(dataset_test)
-    # else:
-        # sampler_train = torch.utils.data.RandomSampler(dataset_train)
-        # sampler_val = torch.utils.data.SequentialSampler(dataset_val)
-
-    if global_rank == 0 and args.log_dir is not None:
-        os.makedirs(args.log_dir, exist_ok=True)
-        log_writer = utils.TensorboardLogger(log_dir=args.log_dir)
-    else:
-        log_writer = None
-
-    if type(dataset_test) == list:
-        data_loader_test = [torch.utils.data.DataLoader(
-            dataset, sampler=sampler,
-            batch_size=int(1.5 * args.batch_size),
-            num_workers=args.num_workers,
-            pin_memory=args.pin_mem,
-            drop_last=False
-        ) for dataset, sampler in zip(dataset_test, sampler_test)]
-    else:
-        data_loader_test = torch.utils.data.DataLoader(
-            dataset_test, sampler=sampler_test,
-            batch_size=int(1.5 * args.batch_size),
-            num_workers=args.num_workers,
-            pin_memory=args.pin_mem,
-            drop_last=False
-        )
-
-
-
-    if args.finetune:
-        if args.finetune.startswith('https'):
-            checkpoint = torch.hub.load_state_dict_from_url(
-                args.finetune, map_location='cpu', check_hash=True)
-        else:
-            checkpoint = torch.load(args.finetune, map_location='cpu')
-
-        print("Load ckpt from %s" % args.finetune)
-        checkpoint_model = None
-        for model_key in args.model_key.split('|'):
-            if model_key in checkpoint:
-                checkpoint_model = checkpoint[model_key]
-                print("Load state_dict by model_key = %s" % model_key)
-                break
-        if checkpoint_model is None:
-            checkpoint_model = checkpoint
-        if (checkpoint_model is not None) and (args.model_filter_name != ''):
-            all_keys = list(checkpoint_model.keys())
-            new_dict = OrderedDict()
-            for key in all_keys:
-                if key.startswith('student.'):
-                    new_dict[key[8:]] = checkpoint_model[key]
-                else:
-                    pass
-            checkpoint_model = new_dict
-
-        state_dict = model.state_dict()
-        for k in ['head.weight', 'head.bias']:
-            if k in checkpoint_model and checkpoint_model[k].shape != state_dict[k].shape:
-                print(f"Removing key {k} from pretrained checkpoint")
-                del checkpoint_model[k]
-
-        all_keys = list(checkpoint_model.keys())
-        for key in all_keys:
-            if "relative_position_index" in key:
-                checkpoint_model.pop(key)
-
-        utils.load_state_dict(model, checkpoint_model, prefix=args.model_prefix)
-
-    model.to(device)
-
-
-
-    test_stats = mbt_evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
-                          is_binary=args.nb_classes == 1)
-    print(f"Accuracy of the network on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%")
 
 
 # @torch.no_grad()

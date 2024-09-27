@@ -137,10 +137,10 @@ def get_args():
                         help='path where to save, empty for no saving')
     parser.add_argument('--log_dir', default=None,
                         help='path where to tensorboard log')
-    # parser.add_argument('--device', default='cuda',
-    #                     help='device to use for training / testing')
-    parser.add_argument('--device', default='cpu',
+    parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing')
+    # parser.add_argument('--device', default='cpu',
+    #                     help='device to use for training / testing')
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--resume', default='',
                         help='resume from checkpoint')
@@ -469,8 +469,8 @@ def main(args, ds_init):
         # print(f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
 
         test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
-                              is_binary=args.nb_classes == 1)
-        print(f"======Accuracy: on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%")
+                              is_binary=args.nb_classes == 1, is_mbt = False)
+        print(f"======Accuracy: on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%", "ALL tests: ", test_stats)
 
         exit(0)
 
@@ -498,9 +498,9 @@ def main(args, ds_init):
                 loss_scaler=loss_scaler, epoch=epoch, model_ema=model_ema, save_ckpt_freq=args.save_ckpt_freq)
             
         if data_loader_val is not None:
-            val_stats = evaluate(data_loader_val, model, device, header='Val:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1)
+            val_stats = evaluate(data_loader_val, model, device, header='Val:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1, is_mbt = False)
             print(f"Accuracy of the network on the {len(dataset_val)} val EEG: {val_stats['accuracy']:.2f}%")
-            test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1)
+            test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1, is_mbt = False)
             print(f"Accuracy of the network on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%")
             
             if max_accuracy < val_stats["accuracy"]:
