@@ -146,7 +146,7 @@ def readEDF(fileName):
     if Rawdata.ch_names != clinic_standart:
         raise ValueError
 
-    if Rawdata.times.shape[0] < 8449:
+    if False and Rawdata.times.shape[0] < 8449:
         # q1 = mne.io.Raw.copy(Rawdata)
         # q2 = mne.io.Raw.copy(Rawdata)
         # q = mne.io.Raw.copy(mne.concatenate_raws([q1,q2]))

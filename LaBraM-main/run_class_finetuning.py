@@ -26,7 +26,7 @@ from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
 from timm.utils import ModelEma
 from optim_factory import create_optimizer, get_parameter_groups, LayerDecayValueAssigner
 
-from engine_for_finetuning import train_one_epoch, evaluate
+from engine_for_finetuning import train_one_epoch, evaluate, evaluate_for_mbt_binary_scenario
 from utils import NativeScalerWithGradNormCount as NativeScaler
 import utils
 from scipy import interpolate
@@ -54,6 +54,8 @@ def get_args():
     parser.set_defaults(rel_pos_bias=True)
     parser.add_argument('--abs_pos_emb', action='store_true')
     parser.set_defaults(abs_pos_emb=False)
+    parser.add_argument('--is_mbt_size', action='store_true')
+    parser.set_defaults(is_mbt_size=False)
     parser.add_argument('--layer_scale_init_value', default=0.1, type=float, 
                         help="0.1 for base, 1e-5 for large. set 0 to disable layer scale")
 
@@ -207,6 +209,7 @@ def get_models(args):
         use_abs_pos_emb=args.abs_pos_emb,
         init_values=args.layer_scale_init_value,
         qkv_bias=args.qkv_bias,
+        is_mbt_size=args.is_mbt_size,
     )
 
     return model
@@ -226,7 +229,7 @@ def get_dataset(args):
                     'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
         ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
         args.nb_classes = 6
-        metrics = ["accuracy", "balanced_accuracy", "cohen_kappa", "f1_weighted"]
+        metrics = ["accuracy", "balanced_accuracy", "cohen_kappa"]
     return train_dataset, test_dataset, val_dataset, ch_names, metrics
 
 
@@ -468,8 +471,8 @@ def main(args, ds_init):
         #     balanced_accuracy.append(test_stats['balanced_accuracy'])
         # print(f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
 
-        test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
-                              is_binary=args.nb_classes == 1, is_mbt = False)
+        test_stats = evaluate_for_mbt_binary_scenario(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
+                              is_binary=True, is_mbt = False,use_thresholds_for_artefacts = False, threshold_for_artefacts = 2.11, threshold_for_epilepsy = 1)
         print(f"======Accuracy: on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%", "ALL tests: ", test_stats)
 
         exit(0)

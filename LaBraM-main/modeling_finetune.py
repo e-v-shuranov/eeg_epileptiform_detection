@@ -265,7 +265,7 @@ class NeuralTransformer(nn.Module):
                  num_heads=10, mlp_ratio=4., qkv_bias=False, qk_norm=None, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
                  drop_path_rate=0., norm_layer=nn.LayerNorm, init_values=None,
                  use_abs_pos_emb=True, use_rel_pos_bias=False, use_shared_rel_pos_bias=False,
-                 use_mean_pooling=True, init_scale=0.001, **kwargs):
+                 use_mean_pooling=True, init_scale=0.001, is_mbt_size=False, **kwargs):
         super().__init__()
         self.num_classes = num_classes
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
@@ -280,8 +280,10 @@ class NeuralTransformer(nn.Module):
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         # self.mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         if use_abs_pos_emb:
-            self.pos_embed = nn.Parameter(torch.zeros(1, 128 + 1, embed_dim), requires_grad=True)
-            # self.pos_embed = nn.Parameter(torch.zeros(1, 136 + 1, embed_dim), requires_grad=True)
+            if is_mbt_size:
+                self.pos_embed = nn.Parameter(torch.zeros(1, 136 + 1, embed_dim), requires_grad=True)
+            else:
+                self.pos_embed = nn.Parameter(torch.zeros(1, 128 + 1, embed_dim), requires_grad=True)
         else:
             self.pos_embed = None
         self.time_embed = nn.Parameter(torch.zeros(1, 16, embed_dim), requires_grad=True)

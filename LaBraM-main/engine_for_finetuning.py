@@ -151,7 +151,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
 
 @torch.no_grad()
-def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True, is_mbt = False):
+def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True, is_mbt = False, from_multiclass_to_binary=False):
     input_chans = None
     if ch_names is not None:
         input_chans = utils.get_input_chans(ch_names)
@@ -169,6 +169,10 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
     true = []
     correct = 0
     count_all = 0
+    use_thresholds_for_artefacts = True
+    threshold_for_artefacts = 0
+    threshold_for_epilepsy = -5
+    art = 0
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
         EEG = batch[0]
         target = batch[-1]
@@ -177,19 +181,25 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
         target = target.to(device, non_blocking=True)
         if is_binary:
             target = target.float().unsqueeze(-1)
-        
+
         # compute output
         with torch.cuda.amp.autocast():
             output = model(EEG, input_chans=input_chans)
 
         if is_mbt:
-            output = (output.argmax(dim=1)<3).float()
+            if use_thresholds_for_artefacts:
+                output_artefacts = (output[:,3:6].max(dim=1)[0]>threshold_for_artefacts)
+                output = (~output_artefacts)*((output.max(dim=1)[0]>threshold_for_epilepsy) * output.argmax(dim=1)<3).float()
+            else:
+                output = (output.argmax(dim=1)<3).float()
             target =  (target>0).float()
-            loss = criterion(output, target) # 0,1,3 - sizors  4,5,6 - artefacts
+            loss = criterion(output, target) # 0,1,2 - sizors  3,4,5 - artefacts
             output = output.int().cpu()
             target = target.int()
             correct += (output == target.cpu()).int().sum()
             count_all += output.size(0)
+            if use_thresholds_for_artefacts:
+                art += (output_artefacts.cpu()).int().sum()
         else:
             loss = criterion(output, target)
             if is_binary:
@@ -197,11 +207,20 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
             else:
                 output = output.cpu()
 
+        if (not is_mbt) and from_multiclass_to_binary:
+            if 'f1_weighted' in metrics:
+                metrics.remove('f1_weighted')
+            if use_thresholds_for_artefacts:
+                output_artefacts = (output[:,3:6].max(dim=1)[0]>threshold_for_artefacts)
+                output = (~output_artefacts)*((output.max(dim=1)[0]>threshold_for_epilepsy) * output.argmax(dim=1)<3).float()
+            else:
+                output = (output.argmax(dim=1)<3).float()
+            target = (target < 3).float()   # 2 classes only
 
         target = target.cpu()
 
 
-        results = utils.get_metrics(output.numpy(), target.numpy(), metrics, (is_binary or is_mbt))
+        results = utils.get_metrics(output.numpy(), target.numpy(), metrics, (is_binary or is_mbt or from_multiclass_to_binary))
         pred.append(output)
         true.append(target)
 
@@ -218,8 +237,91 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
     pred = torch.cat(pred, dim=0).numpy()
     true = torch.cat(true, dim=0).numpy()
 
+    ret = utils.get_metrics(pred, true, metrics, (is_binary or is_mbt or from_multiclass_to_binary), 0.5)
+    ret['loss'] = metric_logger.loss.global_avg
+    if is_mbt:
+        if use_thresholds_for_artefacts:
+            print("mbt:  correct: ", correct, "All: ", count_all, "acc: ", correct/count_all, "art: ", art)
+        else:
+            print("mbt:  correct: ", correct, "All: ", count_all, "acc: ", correct/count_all)
+    return ret
+
+
+@torch.no_grad()
+def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True, is_mbt=False,
+                                     use_thresholds_for_artefacts = True, threshold_for_artefacts = 2.11, threshold_for_epilepsy = 1):
+    input_chans = None
+    if ch_names is not None:
+        input_chans = utils.get_input_chans(ch_names)
+    criterion = torch.nn.CrossEntropyLoss()
+
+    metric_logger = utils.MetricLogger(delimiter="  ")
+    # header = 'Test:'
+
+    # switch to evaluation mode
+    model.eval()
+    pred = []
+    true = []
+    correct = 0
+    count_all = 0
+
+    art = 0
+    for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
+        EEG = batch[0]
+        target = batch[-1]
+        EEG = EEG.float().to(device, non_blocking=True) / 100
+        EEG = rearrange(EEG, 'B N (A T) -> B N A T', T=200)
+        target = target.to(device, non_blocking=True)
+
+        # compute output
+        with torch.cuda.amp.autocast():
+            output = model(EEG, input_chans=input_chans)
+
+
+
+        if use_thresholds_for_artefacts:
+            output_artefacts = (output[:, 3:6].max(dim=1)[0] > threshold_for_artefacts)
+            output = (~output_artefacts) * (
+                        (output.max(dim=1)[0] > threshold_for_epilepsy) * output.argmax(dim=1) < 3).float()
+        else:
+            output = (output.argmax(dim=1) < 3).float()
+
+        if is_mbt:
+            target = (target > 0).float()
+            output = output.int().cpu()   # 0,1,2 - sizors  3,4,5 - artefacts
+            target = target.int()
+            correct += (output == target.cpu()).int().sum()
+            count_all += output.size(0)
+            if use_thresholds_for_artefacts:
+                art += (output_artefacts.cpu()).int().sum()
+        else:  # TUEV
+            target = (target < 3).float()  # 2 classes only
+        loss = criterion(output.cpu().float(), target.cpu().float())
+        output = output.cpu()
+        target = target.cpu()
+        results = utils.get_metrics(output.numpy(), target.numpy(), metrics,
+                                    (is_binary or is_mbt))
+        pred.append(output)
+        true.append(target)
+
+        batch_size = EEG.shape[0]
+        metric_logger.update(loss=loss.item())
+        for key, value in results.items():
+            metric_logger.meters[key].update(value, n=batch_size)
+        # metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
+    # gather the stats from all processes
+    metric_logger.synchronize_between_processes()
+    print('* loss {losses.global_avg:.3f}'
+          .format(losses=metric_logger.loss))
+
+    pred = torch.cat(pred, dim=0).numpy()
+    true = torch.cat(true, dim=0).numpy()
+
     ret = utils.get_metrics(pred, true, metrics, (is_binary or is_mbt), 0.5)
     ret['loss'] = metric_logger.loss.global_avg
     if is_mbt:
-        print("mbt:  correct: ", correct, "All: ", count_all, "acc: ", correct/count_all)
+        if use_thresholds_for_artefacts:
+            print("mbt:  correct: ", correct, "All: ", count_all, "acc: ", correct / count_all, "art: ", art)
+        else:
+            print("mbt:  correct: ", correct, "All: ", count_all, "acc: ", correct / count_all)
     return ret

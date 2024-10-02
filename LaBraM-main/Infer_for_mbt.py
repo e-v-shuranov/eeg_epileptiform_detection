@@ -302,73 +302,11 @@ def main(args, ds_init):
         #     balanced_accuracy.append(test_stats['balanced_accuracy'])
         # print(f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
 
-        test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
-                              is_binary=args.nb_classes == 1, is_mbt = True)
+        test_stats = evaluate_for_mbt_binary_scenario(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
+                              is_binary=True, is_mbt = True, use_thresholds_for_artefacts = False, threshold_for_artefacts = 2.11, threshold_for_epilepsy = 1)
         print(f"======Accuracy: on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%")
 
         exit(0)
-
-
-# @torch.no_grad()
-def mbt_evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True):
-    input_chans = None
-    if ch_names is not None:
-        input_chans = utils.get_input_chans(ch_names)
-    if is_binary:
-        criterion = torch.nn.BCEWithLogitsLoss()
-    else:
-        criterion = torch.nn.CrossEntropyLoss()
-
-    metric_logger = utils.MetricLogger(delimiter="  ")
-    # header = 'Test:'
-
-    # switch to evaluation mode
-    model.eval()
-    pred = []
-    true = []
-    for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
-        EEG = batch[0]
-        target = batch[-1]
-        EEG = EEG.float().to(device, non_blocking=True) / 100
-        EEG = rearrange(EEG, 'B N (A T) -> B N A T', T=200)
-        target = target.to(device, non_blocking=True)
-        if is_binary:
-            target = target.float().unsqueeze(-1)
-
-        #debug
-        # EEG=torch.cat((EEG,EEG[:,0,:,:].repeat(23-16,1,1,1).swapaxes(0,1)),1)
-        # compute output
-        with torch.cuda.amp.autocast():
-            output = model(EEG, input_chans=input_chans)
-            loss = criterion(output, target)
-
-        if is_binary:
-            output = torch.sigmoid(output).cpu()
-        else:
-            output = output.cpu()
-        target = target.cpu()
-
-        results = utils.get_metrics(output.numpy(), target.numpy(), metrics, is_binary)
-        pred.append(output)
-        true.append(target)
-
-        batch_size = EEG.shape[0]
-        metric_logger.update(loss=loss.item())
-        for key, value in results.items():
-            metric_logger.meters[key].update(value, n=batch_size)
-        # metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
-    # gather the stats from all processes
-    metric_logger.synchronize_between_processes()
-    print('* loss {losses.global_avg:.3f}'
-          .format(losses=metric_logger.loss))
-
-    pred = torch.cat(pred, dim=0).numpy()
-    true = torch.cat(true, dim=0).numpy()
-
-    ret = utils.get_metrics(pred, true, metrics, is_binary, 0.5)
-    ret['loss'] = metric_logger.loss.global_avg
-    return ret
-
 
 if __name__ == "__main__":
     opts, ds_init = get_args()
