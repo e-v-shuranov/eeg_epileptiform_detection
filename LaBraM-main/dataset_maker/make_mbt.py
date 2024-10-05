@@ -23,6 +23,9 @@ new_ch_names = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1", "FP2-F8", "F8-T8", "T8-P8",
 # new_ch_names = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1", "FP2-F8", "F8-T8", "T8-P8", "P8-O2", "FP1-F3", "F3-C3", "C3-P3",
 #                 "P3-O1", "FP2-F4", "F4-C4", "C4-P4"]
 
+new_ch_names_half_banana = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1",
+                "FP2-F8", "F8-T8", "T8-P8", "P8-O2"]
+
 
 def BuildEvents(signals, times, EventData):
     [numEvents, z] = EventData.shape  # numEvents is equal to # of rows of the .rec fileчё
@@ -125,6 +128,55 @@ def convert_signals(signals, Rawdata):
     return new_signals, new_ch_names
 
 
+def convert_signals_half_banana(signals, Rawdata):
+    # mbt_chOrder_standard => new_ch_names
+
+    # mbt_chOrder_standard = ['Fp1-F7', 'F7 - T1', 'T1 - T3', 'T3-T5', 'T5-O1',
+    #                         'Fp2-F8', 'F8 - T2', 'T2 - T4', 'T4 - T6', 'T6-O2',
+    #                         'Fp1-F3', 'F3-C3', 'C3-P3', 'P3-O1',
+    #                         'Fp2-F4', 'F4-C4', 'C4-P4', 'P4-O2']
+
+    # new_ch_names_half_banana = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1",
+    #                 "FP2-F8", "F8-T8", "T8-P8", "P8-O2"]
+
+    signal_names = {
+        k: v
+        for (k, v) in zip(
+            Rawdata.info["ch_names"], list(range(len(Rawdata.info["ch_names"])))
+        )
+    }
+    new_signals = np.vstack(
+        (
+            signals[signal_names["Fp1-F7"]]
+        ,   # 0  "FP1-F7"
+            (
+                signals[signal_names["F7 - T1"]]
+                + signals[signal_names["T1 - T3"]]
+            ),  # 1   "F7-T7"   == "F7-T3"
+            (
+                signals[signal_names["T3-T5"]]
+            ),  # 2   "T7-P7"  ==  "T3-T5"
+            (
+                signals[signal_names["T5-O1"]]
+            ),  # 3   "P7-O1"  == "T5-O1"
+            (
+                signals[signal_names["Fp2-F8"]]
+            ),  # 4   "FP2-F8"
+            (
+                signals[signal_names["F8 - T2"]]
+                + signals[signal_names["T2 - T4"]]
+            ),  # 5   "F8-T8"  == "F8-T4"
+            (
+                signals[signal_names["T4 - T6"]]
+            ),  # 6   "T8-P8"  == "T4-T6"
+            (
+                signals[signal_names["T6-O2"]]
+            ),  # 7   "P8-O2"
+        )
+    )
+    return new_signals, new_ch_names_half_banana
+
+
 def readEDF(fileName):
     Rawdata = mne.io.read_raw_edf(fileName, preload=True)
     if mbt_drop_channels is not None:
@@ -147,7 +199,7 @@ def readEDF(fileName):
     RecFile = fileName[0:-3] + "rec"
     num_of_sec = int(times[-1]-1)
 
-    signals, new_chanels = convert_signals(signals,Rawdata)
+    signals, new_chanels = convert_signals_half_banana(signals,Rawdata)
 
 
     if not os.path.exists(RecFile):
@@ -211,7 +263,7 @@ mbt dataset
 
 # root = "/userhome1/jiangweibang/Datasets/TUH_Event/v2.0.0/edf"
 root = "/media/public/Datasets/mbt_data_without_epilepcy"
-eval_out_dir = os.path.join(root, "processed_data_10_09_2024")
+eval_out_dir = os.path.join(root, "processed_data_half_banana")
 if not os.path.exists(eval_out_dir):
     os.makedirs(eval_out_dir)
 
@@ -232,9 +284,9 @@ seed = 4523
 np.random.seed(seed)
 
 
-test_files = os.listdir(os.path.join(root, "processed_data_10_09_2024"))
+test_files = os.listdir(os.path.join(root, "processed_data_half_banana"))
 print("mbt test", len(test_files))
 
 for file in test_files:
-    os.system(f"cp \"{os.path.join(root, 'processed_data_10_09_2024', file)}\" {os.path.join(root, 'processed', 'processed_test')}")
+    os.system(f"cp \"{os.path.join(root, 'processed_data_half_banana', file)}\" {os.path.join(root, 'processed_half_banana', 'processed_test_half_banana')}")
     # os.system(f"cp {os.path.join(root, 'processed_data_10_09_2024', file)} {os.path.join(root, 'processed', 'processed_test')}")

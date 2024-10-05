@@ -224,13 +224,28 @@ def get_dataset(args):
         args.nb_classes = 1
         metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
     elif args.dataset == 'TUEV':
-        train_dataset, test_dataset, val_dataset = utils.prepare_TUEV_dataset("/home/eshuranov/projects/eeg_epileptiform_detection/EEG2Rep/Dataset/TUEV/tuev/edf/processed")
+        # train_dataset, test_dataset, val_dataset = utils.prepare_TUEV_dataset("/home/eshuranov/projects/eeg_epileptiform_detection/EEG2Rep/Dataset/TUEV/tuev/edf/processed")
+        train_dataset, test_dataset, val_dataset = utils.prepare_TUEV_dataset("/media/public/Datasets/TUEV/tuev/edf/processed_banana_half")
         ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
                     'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
-        ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
+        ch_names_after_convert = ['FP1-F7', 'F7-T3', 'T3-T5', 'T5-O1',
+                                  'FP2-F8', 'F8-T4', 'T4-T6', 'T6-O2',
+                                  'FP1-F3', 'F3-C3', 'C3-P3', 'P3-O1',
+                                  'FP2-F4', 'F4-C4', 'C4-P4', 'P4-O2']
+
+        new_ch_names = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1",
+                        "FP2-F8", "F8-T8", "T8-P8", "P8-O2",
+                        "FP1-F3", "F3-C3", "C3-P3", "P3-O1",
+                        "FP2-F4", "F4-C4", "C4-P4", "P4-O2"]
+
+        new_ch_names_to_128 = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1",
+                        "FP2-F8", "F8-T8", "T8-P8", "P8-O2"]
+
+
+        ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names_after_convert]
         args.nb_classes = 6
         metrics = ["accuracy", "balanced_accuracy", "cohen_kappa"]
-    return train_dataset, test_dataset, val_dataset, ch_names, metrics
+    return train_dataset, test_dataset, val_dataset, new_ch_names_to_128, metrics
 
 
 def main(args, ds_init):

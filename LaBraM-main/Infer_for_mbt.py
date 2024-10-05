@@ -31,12 +31,12 @@ def prepare_mbt_dataset(root):
     seed = 4523
     np.random.seed(seed)
 
-    test_files = os.listdir(os.path.join(root, "processed_test"))
+    test_files = os.listdir(os.path.join(root, "processed_test_half_banana"))
 
     # prepare training and test data loader
     test_dataset = mbtLoader(
         os.path.join(
-            root, "processed_test"), test_files
+            root, "processed_test_half_banana"), test_files
     )
 
     print(len(test_files))
@@ -45,20 +45,24 @@ def prepare_mbt_dataset(root):
 
 def get_mbt_dataset(args):
     # if args.dataset == 'mbt':
-    if args.dataset == 'TUEV':
-        test_dataset = prepare_mbt_dataset("/home/eshuranov/projects/eeg_epileptiform_detection/data/mbt_data_without_epilepcy/processed_before_remove_P4-O2")
+    if True:
+        test_dataset = prepare_mbt_dataset("/media/public/Datasets/mbt_data_without_epilepcy/processed_half_banana")
         # ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
         #             'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
         # mbt_chOrder_standard = ['Fp2-F8', 'F8 - T2', 'T2 - T4', 'T4 - T6', 'T6-O2', 'Fp1-F7', 'F7 - T1', 'T1 - T3',
         #                         'T3-T5', 'T5-O1', 'Fp2-F4', 'F4-C4', 'C4-P4', 'P4-O2', 'Fp1-F3', 'F3-C3', 'C3-P3',
         #                         'P3-O1', 'Fz-Cz', 'Cz-Pz']
-        new_ch_names = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1", "FP2-F8", "F8-T8", "T8-P8", "P8-O2", "FP1-F3", "F3-C3",
-                        "C3-P3", "P3-O1", "FP2-F4", "F4-C4", "C4-P4", "P4-O2"]
+        new_ch_names = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1",
+                        "FP2-F8", "F8-T8", "T8-P8", "P8-O2",
+                        "FP1-F3", "F3-C3", "C3-P3", "P3-O1",
+                        "FP2-F4", "F4-C4", "C4-P4", "P4-O2"]
         # ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
+        new_ch_names_to_128 = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1",
+                        "FP2-F8", "F8-T8", "T8-P8", "P8-O2"]
         args.nb_classes = 6
         metrics = ["accuracy", "balanced_accuracy"]
     # metrics = ["accuracy", "balanced_accuracy", "cohen_kappa", "f1_weighted"]
-    return test_dataset, new_ch_names, metrics
+    return test_dataset, new_ch_names_to_128, metrics
 
 
 
@@ -309,6 +313,7 @@ def main(args, ds_init):
         exit(0)
 
 if __name__ == "__main__":
+    print("infer_for_mbt")
     opts, ds_init = get_args()
     if opts.output_dir:
         Path(opts.output_dir).mkdir(parents=True, exist_ok=True)

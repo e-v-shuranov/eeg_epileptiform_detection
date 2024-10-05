@@ -762,22 +762,22 @@ def prepare_TUEV_dataset(root):
     seed = 4523
     np.random.seed(seed)
 
-    train_files = os.listdir(os.path.join(root, "processed_train"))
-    val_files = os.listdir(os.path.join(root, "processed_eval"))
-    test_files = os.listdir(os.path.join(root, "processed_test"))
+    train_files = os.listdir(os.path.join(root, "processed_train_banana"))
+    val_files = os.listdir(os.path.join(root, "processed_eval_banana"))
+    test_files = os.listdir(os.path.join(root, "processed_test_banana"))
 
     # prepare training and test data loader
     train_dataset = TUEVLoader(
         os.path.join(
-            root, "processed_train"), train_files
+            root, "processed_train_banana"), train_files
     )
     test_dataset = TUEVLoader(
         os.path.join(
-            root, "processed_test"), test_files
+            root, "processed_test_banana"), test_files
     )
     val_dataset = TUEVLoader(
         os.path.join(
-            root, "processed_eval"), val_files
+            root, "processed_eval_banana"), val_files
     )
     print(len(train_files), len(val_files), len(test_files))
     return train_dataset, test_dataset, val_dataset

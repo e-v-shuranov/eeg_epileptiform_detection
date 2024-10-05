@@ -53,6 +53,11 @@ def convert_signals(signals, Rawdata):
             Rawdata.info["ch_names"], list(range(len(Rawdata.info["ch_names"])))
         )
     }
+    ch_names_after_convert = ['FP1-F7', 'F7-T3', 'T3-T5', 'T5-O1',
+                        'FP2-F8', 'F8-T4', 'T4-T6', 'T6-O2',
+                        'FP1-F3', 'F3-C3', 'C3-P3', 'P3-O1',
+                        'FP2-F4', 'F4-C4', 'C4-P4', 'P4-O2']
+
     new_signals = np.vstack(
         (
             signals[signal_names["EEG FP1-REF"]]
@@ -119,6 +124,52 @@ def convert_signals(signals, Rawdata):
     return new_signals
 
 
+def convert_signals_half_banana(signals, Rawdata):
+    signal_names = {
+        k: v
+        for (k, v) in zip(
+            Rawdata.info["ch_names"], list(range(len(Rawdata.info["ch_names"])))
+        )
+    }
+    ch_names_after_convert = ['FP1-F7', 'F7-T3', 'T3-T5', 'T5-O1',
+                        'FP2-F8', 'F8-T4', 'T4-T6', 'T6-O2']
+
+    new_signals = np.vstack(
+        (
+            signals[signal_names["EEG FP1-REF"]]
+            - signals[signal_names["EEG F7-REF"]],  # 0
+            (
+                signals[signal_names["EEG F7-REF"]]
+                - signals[signal_names["EEG T3-REF"]]
+            ),  # 1
+            (
+                signals[signal_names["EEG T3-REF"]]
+                - signals[signal_names["EEG T5-REF"]]
+            ),  # 2
+            (
+                signals[signal_names["EEG T5-REF"]]
+                - signals[signal_names["EEG O1-REF"]]
+            ),  # 3
+            (
+                signals[signal_names["EEG FP2-REF"]]
+                - signals[signal_names["EEG F8-REF"]]
+            ),  # 4
+            (
+                signals[signal_names["EEG F8-REF"]]
+                - signals[signal_names["EEG T4-REF"]]
+            ),  # 5
+            (
+                signals[signal_names["EEG T4-REF"]]
+                - signals[signal_names["EEG T6-REF"]]
+            ),  # 6
+            (
+                signals[signal_names["EEG T6-REF"]]
+                - signals[signal_names["EEG O2-REF"]]
+            ),  # 7
+        )
+    )  # 21
+    return new_signals
+
 def readEDF(fileName):
     Rawdata = mne.io.read_raw_edf(fileName, preload=True)
     if drop_channels is not None:
@@ -154,7 +205,7 @@ def load_up_objects(BaseDir, Features, OffendingChannels, Labels, OutDir):
                     [signals, times, event, Rawdata] = readEDF(
                         dirName + "/" + fname
                     )  # event is the .rec file in the form of an array
-                    #signals = convert_signals(signals, Rawdata)
+                    signals = convert_signals_half_banana(signals, Rawdata)
                 except (ValueError, KeyError):
                     print("something funky happened in " + dirName + "/" + fname)
                     continue
@@ -186,11 +237,13 @@ def save_pickle(object, filename):
 """
 TUEV dataset is downloaded from https://isip.piconepress.com/projects/tuh_eeg/html/downloads.shtml
 """
-"""
+
 # root = "/userhome1/jiangweibang/Datasets/TUH_Event/v2.0.0/edf"
-root = "/home/eshuranov/projects/eeg_epileptiform_detection/EEG2Rep/Dataset/TUEV/tuev/edf"
-train_out_dir = os.path.join(root, "processed_train")
-eval_out_dir = os.path.join(root, "processed_eval")
+# root = "/home/eshuranov/projects/eeg_epileptiform_detection/EEG2Rep/Dataset/TUEV/tuev/edf"
+root = "/media/public/Datasets/TUEV/tuev/edf"
+
+train_out_dir = os.path.join(root, "processed_train_banana_half")
+eval_out_dir = os.path.join(root, "processed_eval_banana_half")
 if not os.path.exists(train_out_dir):
     os.makedirs(train_out_dir)
 if not os.path.exists(eval_out_dir):
@@ -218,17 +271,19 @@ load_up_objects(
     BaseDirEval, EvalFeatures, EvalLabels, EvalOffendingChannel, eval_out_dir
 )
 
-"""
+
 #transfer to train, eval, and test
 # root = "/share/TUEV/"
-root = "/home/eshuranov/projects/eeg_epileptiform_detection/EEG2Rep/Dataset/TUEV/tuev/edf"
+# root = "/home/eshuranov/projects/eeg_epileptiform_detection/EEG2Rep/Dataset/TUEV/tuev/edf"
+root = "/media/public/Datasets/TUEV/tuev/edf"
+
 seed = 4523
 np.random.seed(seed)
 
-train_files = os.listdir(os.path.join(root, "processed_train"))
+train_files = os.listdir(os.path.join(root, "processed_train_banana_half"))
 train_sub = list(set([f.split("_")[0] for f in train_files]))
 print("train sub", len(train_sub))
-test_files = os.listdir(os.path.join(root, "processed_eval"))
+test_files = os.listdir(os.path.join(root, "processed_eval_banana_half"))
 
 val_sub = np.random.choice(train_sub, size=int(
     len(train_sub) * 0.2), replace=False)
@@ -237,8 +292,8 @@ val_files = [f for f in train_files if f.split("_")[0] in val_sub]
 train_files = [f for f in train_files if f.split("_")[0] in train_sub]
 
 for file in train_files:
-    os.system(f"cp {os.path.join(root, 'processed_train', file)} {os.path.join(root, 'processed', 'processed_train')}")
+    os.system(f"cp {os.path.join(root, 'processed_train_banana_half', file)} {os.path.join(root, 'processed_banana_half', 'processed_train_banana')}")
 for file in val_files:
-    os.system(f"cp {os.path.join(root, 'processed_train', file)} {os.path.join(root, 'processed', 'processed_eval')}")
+    os.system(f"cp {os.path.join(root, 'processed_train_banana_half', file)} {os.path.join(root, 'processed_banana_half', 'processed_eval_banana')}")
 for file in test_files:
-    os.system(f"cp {os.path.join(root, 'processed_eval', file)} {os.path.join(root, 'processed', 'processed_test')}")
+    os.system(f"cp {os.path.join(root, 'processed_eval_banana_half', file)} {os.path.join(root, 'processed_banana_half', 'processed_test_banana')}")
