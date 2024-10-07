@@ -330,7 +330,8 @@ def main(args, ds_init):
                 batch_size=int(1.5 * args.batch_size),
                 num_workers=args.num_workers,
                 pin_memory=args.pin_mem,
-                drop_last=False
+                drop_last=False,
+                shuffle=False    # debug
             ) for dataset, sampler in zip(dataset_test, sampler_test)]
         else:
             data_loader_test = torch.utils.data.DataLoader(
@@ -338,7 +339,8 @@ def main(args, ds_init):
                 batch_size=int(1.5 * args.batch_size),
                 num_workers=args.num_workers,
                 pin_memory=args.pin_mem,
-                drop_last=False
+                drop_last=False,
+                shuffle = False   # debug
             )
     else:
         data_loader_val = None
@@ -487,7 +489,7 @@ def main(args, ds_init):
         # print(f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
 
         test_stats = evaluate_for_mbt_binary_scenario(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
-                              is_binary=True, is_mbt = False,use_thresholds_for_artefacts = False, threshold_for_artefacts = 2.11, threshold_for_epilepsy = 1)
+                              is_binary=True, is_mbt = False,use_thresholds_for_artefacts = True, threshold_for_artefacts = -0.00005, threshold_for_epilepsy = -5)
         print(f"======Accuracy: on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%", "ALL tests: ", test_stats)
 
         exit(0)

@@ -247,6 +247,21 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
     return ret
 
 
+import numpy as np
+import scipy
+import matplotlib.pyplot as plt
+def get_amplitude(x):
+    spec = scipy.fft.fft(x)
+
+    ampl = np.absolute(spec)
+    ff = np.arange(0,100, (1./(1./200*ampl.size)))
+
+    plt.plot(ff[5:int(ampl.size/2)],ampl[5:int(ampl.size/2)], color="blue")
+    plt.show()
+
+    return
+
+
 @torch.no_grad()
 def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True, is_mbt=False,
                                      use_thresholds_for_artefacts = True, threshold_for_artefacts = 2.11, threshold_for_epilepsy = 1):
@@ -272,12 +287,14 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
         EEG = EEG.float().to(device, non_blocking=True) / 100
         EEG = rearrange(EEG, 'B N (A T) -> B N A T', T=200)
         target = target.to(device, non_blocking=True)
-
+        # for i in range(batch[0].size()[0]):
+        #     for ch in range(batch[0].size()[1]):
+        #         get_amplitude(batch[0][i][ch])
         # compute output
         with torch.cuda.amp.autocast():
             output = model(EEG, input_chans=input_chans)
 
-
+        # torch.cat((EEG, EEG), dim=2)
 
         if use_thresholds_for_artefacts:
             output_artefacts = (output[:, 3:6].max(dim=1)[0] > threshold_for_artefacts)

@@ -8,6 +8,21 @@ import pickle
 from tqdm import tqdm
 
 
+import numpy as np
+import scipy
+import matplotlib.pyplot as plt
+def get_amplitude(x, fs=200):
+    spec = scipy.fft.fft(x)
+
+    ampl = np.absolute(spec)
+    ff = np.arange(0,fs/2, (1./(1./fs*ampl.size)))
+
+    plt.plot(ff[5:int(ampl.size/2)],ampl[5:int(ampl.size/2)], color="blue")
+    plt.show()
+
+    return
+
+
 # drop_channels may be we have to enlarge
 drop_channels = ['PHOTIC-REF', 'IBI', 'BURSTS', 'SUPPR', 'EEG ROC-REF', 'EEG LOC-REF', 'EEG EKG1-REF', 'EMG-REF', 'EEG C3P-REF', 'EEG C4P-REF', 'EEG SP1-REF', 'EEG SP2-REF', \
                  'EEG LUC-REF', 'EEG RLC-REF', 'EEG RESP1-REF', 'EEG RESP2-REF', 'EEG EKG-REF', 'RESP ABDOMEN-REF', 'ECG EKG-REF', 'PULSE RATE', 'EEG PG2-REF', 'EEG PG1-REF']
@@ -179,6 +194,8 @@ def convert_signals_half_banana(signals, Rawdata):
 
 def readEDF(fileName):
     Rawdata = mne.io.read_raw_edf(fileName, preload=True)
+    for ch in range(Rawdata[:][0].shape[0]):
+        get_amplitude(Rawdata[:][0][ch], fs=500)
     if mbt_drop_channels is not None:
         useless_chs = []
         for ch in mbt_drop_channels:
@@ -194,14 +211,24 @@ def readEDF(fileName):
     Rawdata.notch_filter(50.0)
     Rawdata.resample(200, n_jobs=5)
 
+    # for ch in range(Rawdata[:][0].shape[0]):
+    get_amplitude(Rawdata[:][0][0], fs=200)
+
+
+
     _, times = Rawdata[:]
     signals = Rawdata.get_data(units='uV')
     RecFile = fileName[0:-3] + "rec"
     num_of_sec = int(times[-1]-1)
 
+    # for ch in range(Rawdata[:][0].shape[0]):
+    get_amplitude(signals[0], fs=200)
+
     signals, new_chanels = convert_signals_half_banana(signals,Rawdata)
 
-
+    for ch in range(len(new_chanels)):
+        get_amplitude(signals[ch], fs=200)
+    exit(0)
     if not os.path.exists(RecFile):
         eventData = np.zeros([signals.shape[0]*num_of_sec, 4])
         # eventData[0] - chanel  eventData[1] ==  start eventData[2] == end  eventData[3] == 0 label
@@ -278,7 +305,7 @@ load_up_objects(
     BaseDirTrain, mbtFeatures, mbtLabels, mbtOffendingChannel, eval_out_dir
 )
 
-
+exit(0)
 #transfer to eval
 seed = 4523
 np.random.seed(seed)

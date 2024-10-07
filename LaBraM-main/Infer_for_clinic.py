@@ -31,12 +31,12 @@ def prepare_mbt_dataset(root):
     seed = 4523
     np.random.seed(seed)
 
-    test_files = os.listdir(os.path.join(root, "processed_test_half_banana"))
+    test_files = os.listdir(os.path.join(root, "processed_Standard"))
 
     # prepare training and test data loader
     test_dataset = mbtLoader(
         os.path.join(
-            root, "processed_test_half_banana"), test_files
+            root, "processed_Standard"), test_files
     )
 
     print(len(test_files))
@@ -44,9 +44,9 @@ def prepare_mbt_dataset(root):
 
 
 def get_mbt_dataset(args):
-    # if args.dataset == 'mbt':
+    # if args.dataset == 'clinic':
     if True:
-        test_dataset = prepare_mbt_dataset("/media/public/Datasets/mbt_data_without_epilepcy/processed_half_banana")
+        test_dataset = prepare_mbt_dataset("/media/public/Datasets/sample_hospital/processed")
         # ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
         #             'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
         # mbt_chOrder_standard = ['Fp2-F8', 'F8 - T2', 'T2 - T4', 'T4 - T6', 'T6-O2', 'Fp1-F7', 'F7 - T1', 'T1 - T3',
