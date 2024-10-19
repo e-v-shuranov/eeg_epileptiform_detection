@@ -137,6 +137,9 @@ def get_args():
 
     parser.add_argument('--output_dir', default='',
                         help='path where to save, empty for no saving')
+    parser.add_argument('--fixed_chkpt', default='',
+                        help='path for fixed checkpoint for evaluation or continue')
+
     parser.add_argument('--log_dir', default=None,
                         help='path where to tensorboard log')
     parser.add_argument('--device', default='cuda',
@@ -489,7 +492,7 @@ def main(args, ds_init):
         # print(f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
 
         test_stats = evaluate_for_mbt_binary_scenario(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
-                              is_binary=True, is_mbt = False,use_thresholds_for_artefacts = True, threshold_for_artefacts = -0.00005, threshold_for_epilepsy = -5)
+                              is_binary=True, is_mbt = False,use_thresholds_for_artefacts = False, threshold_for_artefacts = -0.00005, threshold_for_epilepsy = -5)
         print(f"======Accuracy: on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%", "ALL tests: ", test_stats)
 
         exit(0)
