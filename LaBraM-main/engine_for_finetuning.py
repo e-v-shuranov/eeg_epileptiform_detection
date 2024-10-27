@@ -262,9 +262,13 @@ def get_amplitude(x):
     return
 
 
+
+
+import csv
+
 @torch.no_grad()
 def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True, is_mbt=False,
-                                     use_thresholds_for_artefacts = True, threshold_for_artefacts = 2.11, threshold_for_epilepsy = 1):
+                                     use_thresholds_for_artefacts = True, threshold_for_artefacts = 2.11, threshold_for_epilepsy = 1, path_output = "log_output.csv"):
     input_chans = None
     if ch_names is not None:
         input_chans = utils.get_input_chans(ch_names)
@@ -280,6 +284,8 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
     correct = 0
     count_all = 0
 
+    time_index = []
+    out_label = []
     art = 0
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
         EEG = batch[0]
@@ -299,9 +305,11 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
         if use_thresholds_for_artefacts:
             output_artefacts = (output[:, 3:6].max(dim=1)[0] > threshold_for_artefacts)
             output = (~output_artefacts) * (
-                        (output.max(dim=1)[0] > threshold_for_epilepsy) * output.argmax(dim=1) < 3).float()
+                        (output.max(dim=1)[0] > threshold_for_epilepsy) * (output.argmax(dim=1) < 3)).float()
         else:
             output = (output.argmax(dim=1) < 3).float()
+        time_index.extend(target.cpu().numpy())
+        out_label.extend(output.cpu().numpy())
 
         if is_mbt:
             target = (target > 0).float()
@@ -326,6 +334,17 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
         for key, value in results.items():
             metric_logger.meters[key].update(value, n=batch_size)
         # metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
+
+
+    #store output
+    with open(path_output, 'w') as f:
+
+        # using csv.writer method from CSV package
+        write = csv.writer(f)
+
+        write.writerow(time_index)
+        write.writerow(out_label)
+
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print('* loss {losses.global_avg:.3f}'

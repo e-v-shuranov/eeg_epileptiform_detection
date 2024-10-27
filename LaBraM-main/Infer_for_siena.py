@@ -6,10 +6,30 @@ import pickle
 from einops import rearrange
 from run_class_finetuning import *
 
+import re
 
-class mbtLoader(torch.utils.data.Dataset):
+def tryint(s):
+    try:
+        return int(s)
+    except:
+        return s
+
+def alphanum_key(s):
+    """ Turn a string into a list of string and number chunks.
+        "z23a" -> ["z", 23, "a"]
+    """
+    return [ tryint(c) for c in re.split('([0-9]+)', s) ]
+
+def sort_nicely(l):
+    """ Sort the given list in the way that humans expect.
+    """
+    l.sort(key=alphanum_key)
+
+
+class siena_Loader(torch.utils.data.Dataset):
     def __init__(self, root, files, sampling_rate=200):
         self.root = root
+        sort_nicely(files)
         self.files = files
         self.default_rate = 200
         self.sampling_rate = sampling_rate
@@ -22,46 +42,35 @@ class mbtLoader(torch.utils.data.Dataset):
         X = sample["signal"]
         if self.sampling_rate != self.default_rate:
             X = resample(X, 5 * self.sampling_rate, axis=-1)
-        Y = int(sample["label"][0] - 1)
+        # Y = int(sample["label"][0] - 1)
+        Y = index
         X = torch.FloatTensor(X)
         return X, self.files[index], Y
 
-def prepare_mbt_dataset(root):
-    # set random seed
-    seed = 4523
-    np.random.seed(seed)
-
-    test_files = os.listdir(os.path.join(root, "processed_Intervju"))
-
-    # prepare training and test data loader
-    test_dataset = mbtLoader(
+experiment_name = "PN12-1.2"
+def prepare_siena_dataset(root):
+    test_files = os.listdir(os.path.join(root, experiment_name))
+    test_dataset = siena_Loader(
         os.path.join(
-            root, "processed_Intervju"), test_files
+            root, experiment_name), test_files
     )
 
     print(len(test_files))
     return test_dataset
 
 
-def get_mbt_dataset(args):
-    # if args.dataset == 'clinic':
+def get_siena_dataset(args):
+    # if args.dataset == 'siena':
     if True:
-        test_dataset = prepare_mbt_dataset("/media/public/Datasets/sample_hospital/processed")
-        # ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
-        #             'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
-        # mbt_chOrder_standard = ['Fp2-F8', 'F8 - T2', 'T2 - T4', 'T4 - T6', 'T6-O2', 'Fp1-F7', 'F7 - T1', 'T1 - T3',
-        #                         'T3-T5', 'T5-O1', 'Fp2-F4', 'F4-C4', 'C4-P4', 'P4-O2', 'Fp1-F3', 'F3-C3', 'C3-P3',
-        #                         'P3-O1', 'Fz-Cz', 'Cz-Pz']
-        new_ch_names = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1",
-                        "FP2-F8", "F8-T8", "T8-P8", "P8-O2",
-                        "FP1-F3", "F3-C3", "C3-P3", "P3-O1",
-                        "FP2-F4", "F4-C4", "C4-P4", "P4-O2"]
-        # ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
+        test_dataset = prepare_siena_dataset("/media/public/Datasets/siena-scalp-eeg-database-1.0.0/processed_all_banana_half")
+        # new_ch_names = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1",
+        #                 "FP2-F8", "F8-T8", "T8-P8", "P8-O2",
+        #                 "FP1-F3", "F3-C3", "C3-P3", "P3-O1",
+        #                 "FP2-F4", "F4-C4", "C4-P4", "P4-O2"]
         new_ch_names_to_128 = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1",
                         "FP2-F8", "F8-T8", "T8-P8", "P8-O2"]
         args.nb_classes = 6
         metrics = ["accuracy", "balanced_accuracy"]
-    # metrics = ["accuracy", "balanced_accuracy", "cohen_kappa", "f1_weighted"]
     return test_dataset, new_ch_names_to_128, metrics
 
 
@@ -88,7 +97,7 @@ def main(args, ds_init):
     # ch_names: list of strings, channel names of the dataset. It should be in capital letters.
     # metrics: list of strings, the metrics you want to use. We utilize PyHealth to implement it.
     dataset_train, dataset_test, dataset_val, ch_names, metrics = get_dataset(args)
-    dataset_test, ch_names, metrics = get_mbt_dataset(args)
+    dataset_test, ch_names, metrics = get_siena_dataset(args)
 
     if args.disable_eval_during_finetuning:
         dataset_val = None
@@ -310,14 +319,18 @@ def main(args, ds_init):
         #     balanced_accuracy.append(test_stats['balanced_accuracy'])
         # print(f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
 
+        path_output = os.path.join("/media/public/Datasets/siena-scalp-eeg-database-1.0.0/output", experiment_name)
+        if not os.path.exists(path_output):
+            os.makedirs(path_output)
+        path_output = os.path.join(path_output, "log_output.csv")
         test_stats = evaluate_for_mbt_binary_scenario(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
-                              is_binary=True, is_mbt = True, use_thresholds_for_artefacts = False, threshold_for_artefacts = -0.53, threshold_for_epilepsy = -500)
+                              is_binary=True, is_mbt = True, use_thresholds_for_artefacts = False, threshold_for_artefacts = -0.53, threshold_for_epilepsy = -500, path_output = path_output)
         print(f"======Accuracy: on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%")
 
         exit(0)
 
 if __name__ == "__main__":
-    print("infer_for_mbt")
+    print("infer_for_siena")
     opts, ds_init = get_args()
     if opts.output_dir:
         Path(opts.output_dir).mkdir(parents=True, exist_ok=True)
