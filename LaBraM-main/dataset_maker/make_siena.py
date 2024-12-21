@@ -30,7 +30,7 @@ chOrder_standard = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'E
 
 drop_channels.extend(['EEG Fc1', 'EEG Fc5', 'EEG Cp1', 'EEG Cp5', 'EEG F9', 'EEG Fc2', 'EEG Fc6', 'EEG Cp2', 'EEG Cp6', 'EEG F10', \
      'EKG EKG', 'SPO2', 'HR', '1', '2', 'EEG P9', 'EEG P10', 'B', 'C', 'D', 'PLET', '61', '62', '63', '64', 'MK'])
-chOrder_standard_siena =['EEG Fp1', 'EEG FP2', 'EEG F3', 'EEG F4', 'EEG C3', 'EEG C4', 'EEG P3', 'EEG P4', 'EEG O1', 'EEG O2', 'EEG F7', \
+chOrder_standard_siena =['EEG Fp1', 'EEG Fp2', 'EEG F3', 'EEG F4', 'EEG C3', 'EEG C4', 'EEG P3', 'EEG P4', 'EEG O1', 'EEG O2', 'EEG F7', \
                          'EEG F8', 'EEG T3', 'EEG T4', 'EEG T5', 'EEG T6', 'EEG Fz', 'EEG Cz', 'EEG Pz']
 
 
@@ -149,7 +149,7 @@ def convert_signals_half_banana(signals, Rawdata):
     }
 
     # input
-    # chOrder_standard_siena = ['EEG Fp1', 'EEG FP2', 'EEG F3', 'EEG F4',
+    # chOrder_standard_siena = ['EEG Fp1', 'EEG Fp2', 'EEG F3', 'EEG F4',
     #                           'EEG C3', 'EEG C4', 'EEG P3', 'EEG P4',
     #                           'EEG O1', 'EEG O2', 'EEG F7', 'EEG F8',
     #                           'EEG T3', 'EEG T4', 'EEG T5', 'EEG T6',
@@ -182,7 +182,7 @@ def convert_signals_half_banana(signals, Rawdata):
                 - signals[signal_names["EEG O1"]]
             ),  # 3
             (
-                signals[signal_names["EEG FP2"]]
+                signals[signal_names["EEG Fp2"]]
                 - signals[signal_names["EEG F8"]]
             ),  # 4
             (
@@ -201,6 +201,20 @@ def convert_signals_half_banana(signals, Rawdata):
     )  # 21
     return new_signals, ch_names_after_convert
 
+def read_dir_txt(file_path):
+    if not os.path.exists(file_path):
+        print(f'no labels for directory {file_path}')
+        return []
+
+    with open(file_path, 'r') as file:
+        lines = file.readlines()
+    return [line.strip() for line in lines]
+
+def count_seconds(string):
+    string = string.split('.')
+
+    return int(string[0]) * 3600 + int(string[1]) * 60 + int(string[2])
+
 def readEDF(fileName):
     Rawdata = mne.io.read_raw_edf(fileName, preload=True)
     if drop_channels is not None:
@@ -210,6 +224,8 @@ def readEDF(fileName):
                 useless_chs.append(ch)
         Rawdata.drop_channels(useless_chs)
     if chOrder_standard_siena is not None and len(chOrder_standard_siena) == len(Rawdata.ch_names):
+        if 'EEG FP2' in Rawdata.ch_names:
+            Rawdata.rename_channels({'EEG FP2': 'EEG Fp2'})
         Rawdata.reorder_channels(chOrder_standard_siena)
     if Rawdata.ch_names != chOrder_standard_siena:
         raise ValueError
@@ -224,9 +240,42 @@ def readEDF(fileName):
     num_of_sec = int(times[-1] - 1)
 
 
+    # print(RecFile, num_of_sec)
+    path = fileName.split('/')
+    txt_file_name = '/'.join(path[:-1]) + '/Seizures-list-' + path[-2] + '.txt'
+    lines = read_dir_txt(txt_file_name)
+
+    seizure_arr = []
+    for i in range(len(lines)):
+        if ('PN01.edf' in lines[i] and path[-1] == 'PN01-1.edf'):
+            start_time = count_seconds(lines[i + 1].split()[-1])
+            end_time = count_seconds(lines[i + 2].split()[-1])
+
+            seizure_start_time = count_seconds(lines[i + 5].split()[-1].replace(":", ".")) - start_time
+            seizure_end_time = count_seconds(lines[i + 6].split()[-1]) - start_time
+            seizure_arr.append([seizure_start_time, seizure_end_time])
+            seizure_start_time = count_seconds(lines[i + 9].split()[-1]) - start_time
+            seizure_end_time = count_seconds(lines[i + 10].split()[-1]) - start_time
+            seizure_arr.append([seizure_start_time, seizure_end_time])
+            print("exception for PN01.edf seizure_arr:", seizure_arr)
+            break
+        elif (path[-1] in lines[i] or ('PNO6-4.edf' in lines[i] and path[-1] == 'PN06-4.edf')
+                or ('PNO6-2.edf' in lines[i] and path[-1] == 'PN06-2.edf')
+                or ('PN11-.edf' in lines[i] and path[-1] == 'PN11-1.edf')
+                or ('PNO6-1.edf' in lines[i] and path[-1] == 'PN06-1.edf')):
+
+
+            start_time = count_seconds(lines[i + 1].split()[-1])
+            end_time = count_seconds(lines[i + 2].split()[-1])
+
+            seizure_start_time = count_seconds(lines[i + 3].split()[-1]) - start_time
+            seizure_end_time = count_seconds(lines[i + 4].split()[-1]) - start_time
+            seizure_arr.append([seizure_start_time, seizure_end_time])
 
     signals, new_channels = convert_signals_half_banana(signals, Rawdata)
+    registered_num_seconds = end_time - start_time
 
+    # print(seizure_arr)
     if not os.path.exists(RecFile):
         eventData = np.zeros([num_of_sec, 4])
         # eventData[0] - chanel  eventData[1] ==  start eventData[2] == end  eventData[3] == 0 label
@@ -235,6 +284,17 @@ def readEDF(fileName):
             eventData[current_sec, 0] = ch_
             eventData[current_sec, 1] = current_sec
             eventData[current_sec, 2] = current_sec + 1
+
+            if current_sec > registered_num_seconds:
+                print(f'file name {fileName}: current second {current_sec} is no longer registered')
+                continue
+            else:
+                for interval in seizure_arr:
+                    if interval[0] <= current_sec <= interval[1]:
+                        print(current_sec, interval, fileName)
+                        eventData[current_sec, 3] = 1
+                        break
+
     else:
         eventData = np.genfromtxt(RecFile, delimiter=",")
     Rawdata.close()
@@ -243,6 +303,18 @@ def readEDF(fileName):
 
 
 def load_up_objects(BaseDir, Features, OffendingChannels, Labels, OutDir):
+
+    # testpath = "/media/public/Datasets/siena-scalp-eeg-database-1.0.0/PN01/PN01-1.edf"
+    # try:
+    #     [signals, times, event] = readEDF(
+    #         testpath
+    #     )
+    #
+    # except (ValueError, KeyError):
+    #     print("!!!")
+    # print(event)
+    # exit(0)
+
     dir_list = os.listdir(BaseDir)
     for p_path in dir_list:
         p_path_full = os.path.join(BaseDir, p_path)
@@ -299,17 +371,6 @@ root = "/media/public/Datasets/siena-scalp-eeg-database-1.0.0"
 all_out_dir = os.path.join(root, "processed_all_banana_half")
 if not os.path.exists(all_out_dir):
     os.makedirs(all_out_dir)
-# processed_out_dir = os.path.join(root, "processed_banana_half")
-# if not os.path.exists(processed_out_dir):
-#     os.makedirs(processed_out_dir)
-#
-# processed_out_train = os.path.join(processed_out_dir, "processed_train_banana")
-# processed_out_test = os.path.join(processed_out_dir, "processed_eval_banana")
-# if not os.path.exists(processed_out_train):
-#     os.makedirs(processed_out_train)
-# if not os.path.exists(processed_out_test):
-#     os.makedirs(processed_out_test)
-
 
 BaseDirTrain = root
 fs = 200
@@ -322,21 +383,3 @@ load_up_objects(
     BaseDirTrain, TrainFeatures, TrainLabels, TrainOffendingChannel, all_out_dir
 )
 
-
-# seed = 4523
-# np.random.seed(seed)
-#
-# train_files = os.listdir(os.path.join(root, "processed_all_banana_half"))
-# train_sub = list(set([f.split("_")[0] for f in train_files]))
-# print("train sub", len(train_sub))
-
-# val_sub = np.random.choice(train_sub, size=int(
-#     len(train_sub) * 0.2), replace=False)
-# train_sub = list(set(train_sub) - set(val_sub))
-# val_files = [f for f in train_files if f.split("_")[0] in val_sub]
-# train_files = [f for f in train_files if f.split("_")[0] in train_sub]
-#
-# for file in train_files:
-#     os.system(f"cp {os.path.join(all_out_dir, file)} {processed_out_train}")
-# for file in val_files:
-#     os.system(f"cp {os.path.join(all_out_dir, file)} {processed_out_test}")

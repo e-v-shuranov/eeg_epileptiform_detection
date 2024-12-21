@@ -26,17 +26,18 @@ class mbtLoader(torch.utils.data.Dataset):
         X = torch.FloatTensor(X)
         return X, self.files[index], Y
 
+experiment_name = "processed_test_all_clinic"
 def prepare_mbt_dataset(root):
     # set random seed
     seed = 4523
     np.random.seed(seed)
 
-    test_files = os.listdir(os.path.join(root, "processed_Intervju"))
+    test_files = os.listdir(os.path.join(root, experiment_name))
 
     # prepare training and test data loader
     test_dataset = mbtLoader(
         os.path.join(
-            root, "processed_Intervju"), test_files
+            root, experiment_name), test_files
     )
 
     print(len(test_files))
@@ -311,7 +312,7 @@ def main(args, ds_init):
         # print(f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
 
         test_stats = evaluate_for_mbt_binary_scenario(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
-                              is_binary=True, is_mbt = True, use_thresholds_for_artefacts = False, threshold_for_artefacts = -0.53, threshold_for_epilepsy = -500)
+                              is_binary=True, is_mbt = True, use_thresholds_for_artefacts = True, threshold_for_artefacts = -0.54, threshold_for_epilepsy = -5)
         print(f"======Accuracy: on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%")
 
         exit(0)

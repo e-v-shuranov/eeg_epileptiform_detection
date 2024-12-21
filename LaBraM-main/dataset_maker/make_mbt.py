@@ -11,6 +11,7 @@ from tqdm import tqdm
 import numpy as np
 import scipy
 import matplotlib.pyplot as plt
+debug_mode = False
 def get_amplitude(x, fs=200):
     spec = scipy.fft.fft(x)
 
@@ -43,7 +44,7 @@ new_ch_names_half_banana = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1",
 
 
 def BuildEvents(signals, times, EventData):
-    [numEvents, z] = EventData.shape  # numEvents is equal to # of rows of the .rec fileчё
+    [numEvents, z] = EventData.shape  # numEvents is equal to # of rows of the .rec file
     fs = 200.0
     [numChan, numPoints] = signals.shape
     # for i in range(numChan):  # standardize each channel
@@ -194,8 +195,9 @@ def convert_signals_half_banana(signals, Rawdata):
 
 def readEDF(fileName):
     Rawdata = mne.io.read_raw_edf(fileName, preload=True)
-    for ch in range(Rawdata[:][0].shape[0]):
-        get_amplitude(Rawdata[:][0][ch], fs=500)
+    if debug_mode:
+        for ch in range(Rawdata[:][0].shape[0]):
+            get_amplitude(Rawdata[:][0][ch], fs=500)
     if mbt_drop_channels is not None:
         useless_chs = []
         for ch in mbt_drop_channels:
@@ -211,38 +213,31 @@ def readEDF(fileName):
     Rawdata.notch_filter(50.0)
     Rawdata.resample(200, n_jobs=5)
 
-    # for ch in range(Rawdata[:][0].shape[0]):
-    get_amplitude(Rawdata[:][0][0], fs=200)
-
-
+    if debug_mode:
+        get_amplitude(Rawdata[:][0][0], fs=200)
 
     _, times = Rawdata[:]
     signals = Rawdata.get_data(units='uV')
     RecFile = fileName[0:-3] + "rec"
     num_of_sec = int(times[-1]-1)
 
-    # for ch in range(Rawdata[:][0].shape[0]):
-    get_amplitude(signals[0], fs=200)
+    if debug_mode:
+        get_amplitude(signals[0], fs=200)
 
     signals, new_chanels = convert_signals_half_banana(signals,Rawdata)
 
-    for ch in range(len(new_chanels)):
-        get_amplitude(signals[ch], fs=200)
-    exit(0)
     if not os.path.exists(RecFile):
-        eventData = np.zeros([signals.shape[0]*num_of_sec, 4])
+        eventData = np.zeros([num_of_sec, 4])
         # eventData[0] - chanel  eventData[1] ==  start eventData[2] == end  eventData[3] == 0 label
-        for ch_ in range(signals.shape[0]):
-            for current_sec in range(num_of_sec):
-                eventData[(ch_*num_of_sec)+current_sec,0] = ch_
-                eventData[(ch_*num_of_sec)+current_sec,1] = current_sec
-                eventData[(ch_*num_of_sec)+current_sec,2] = current_sec+1
+        ch_ = -1
+        for current_sec in range(num_of_sec):
+            eventData[current_sec, 0] = ch_
+            eventData[current_sec, 1] = current_sec
+            eventData[current_sec, 2] = current_sec + 1
     else:
         eventData = np.genfromtxt(RecFile, delimiter=",")
     Rawdata.close()
-    # Lets check eventData format!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    # RecFile = fileName[0:-3] + "rec"
-    # eventData = np.genfromtxt(RecFile, delimiter=",")
+
     return [signals, times, eventData]
 
 
@@ -287,33 +282,22 @@ def save_pickle(object, filename):
 """
 mbt dataset 
 """
-
-# root = "/userhome1/jiangweibang/Datasets/TUH_Event/v2.0.0/edf"
 root = "/media/public/Datasets/mbt_data_without_epilepcy"
-eval_out_dir = os.path.join(root, "processed_data_half_banana")
-if not os.path.exists(eval_out_dir):
-    os.makedirs(eval_out_dir)
+
+all_out_dir = os.path.join(root, "processed_data_half_banana_without_repeating")
+if not os.path.exists(all_out_dir):
+    os.makedirs(all_out_dir)
 
 BaseDirTrain = os.path.join(root, "data_10_09_2024")
 fs = 200
-mbtFeatures = np.empty(
+TrainFeatures = np.empty(
     (0, 23, fs)
 )  # 0 for lack of intialization, 22 for channels, fs for num of points
-mbtLabels = np.empty([0, 1])
-mbtOffendingChannel = np.empty([0, 1])
+TrainLabels = np.empty([0, 1])
+TrainOffendingChannel = np.empty([0, 1])
 load_up_objects(
-    BaseDirTrain, mbtFeatures, mbtLabels, mbtOffendingChannel, eval_out_dir
+    BaseDirTrain, TrainFeatures, TrainLabels, TrainOffendingChannel, all_out_dir
 )
 
-exit(0)
-#transfer to eval
-seed = 4523
-np.random.seed(seed)
 
 
-test_files = os.listdir(os.path.join(root, "processed_data_half_banana"))
-print("mbt test", len(test_files))
-
-for file in test_files:
-    os.system(f"cp \"{os.path.join(root, 'processed_data_half_banana', file)}\" {os.path.join(root, 'processed_half_banana', 'processed_test_half_banana')}")
-    # os.system(f"cp {os.path.join(root, 'processed_data_10_09_2024', file)} {os.path.join(root, 'processed', 'processed_test')}")

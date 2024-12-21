@@ -42,8 +42,8 @@ class siena_Loader(torch.utils.data.Dataset):
         X = sample["signal"]
         if self.sampling_rate != self.default_rate:
             X = resample(X, 5 * self.sampling_rate, axis=-1)
-        # Y = int(sample["label"][0] - 1)
-        Y = index
+        Y = int(sample["label"][0] - 1)
+        # Y = index
         X = torch.FloatTensor(X)
         return X, self.files[index], Y
 
@@ -63,6 +63,7 @@ def get_siena_dataset(args):
     # if args.dataset == 'siena':
     if True:
         test_dataset = prepare_siena_dataset("/media/public/Datasets/siena-scalp-eeg-database-1.0.0/processed_all_banana_half")
+        # test_dataset = prepare_siena_dataset("/media/public/Datasets/siena-scalp-eeg-database-1.0.0/processed_all_banana_half")
         # new_ch_names = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1",
         #                 "FP2-F8", "F8-T8", "T8-P8", "P8-O2",
         #                 "FP1-F3", "F3-C3", "C3-P3", "P3-O1",
@@ -72,7 +73,6 @@ def get_siena_dataset(args):
         args.nb_classes = 6
         metrics = ["accuracy", "balanced_accuracy"]
     return test_dataset, new_ch_names_to_128, metrics
-
 
 
 def main(args, ds_init):
@@ -318,15 +318,14 @@ def main(args, ds_init):
         #     accuracy.append(test_stats['accuracy'])
         #     balanced_accuracy.append(test_stats['balanced_accuracy'])
         # print(f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
-
         path_output = os.path.join("/media/public/Datasets/siena-scalp-eeg-database-1.0.0/output", experiment_name)
         if not os.path.exists(path_output):
             os.makedirs(path_output)
         path_output = os.path.join(path_output, "log_output.csv")
-        test_stats = evaluate_for_mbt_binary_scenario(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
-                              is_binary=True, is_mbt = True, use_thresholds_for_artefacts = False, threshold_for_artefacts = -0.53, threshold_for_epilepsy = -500, path_output = path_output)
-        print(f"======Accuracy: on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%")
-
+        print(path_output)
+        TN, TP, FN, FP = evaluate_for_mbt_binary_scenario(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
+                              is_binary=True, is_mbt = True, use_thresholds_for_artefacts = True, threshold_for_artefacts = -0.72, threshold_for_epilepsy = -5, path_output = path_output)
+        return  TN, TP, FN, FP
         exit(0)
 
 if __name__ == "__main__":
@@ -334,4 +333,20 @@ if __name__ == "__main__":
     opts, ds_init = get_args()
     if opts.output_dir:
         Path(opts.output_dir).mkdir(parents=True, exist_ok=True)
-    main(opts, ds_init)
+
+    # experiment_name = "PN12-1.2"
+    Path_dataset = "/media/public/Datasets/siena-scalp-eeg-database-1.0.0/processed_all_banana_half"
+    TN_All = 0
+    TP_All = 0
+    FN_All = 0
+    FP_All = 0
+
+    for fname in os.listdir(Path_dataset):
+        experiment_name = fname
+        TN, TP, FN, FP =  main(opts, ds_init)
+        TN_All += TN
+        TP_All += TP
+        FN_All += FN
+        FP_All += FP
+
+    print("TN: ", TN_All, "TP: ", TP_All, "FN: ", FN_All, "FP: ", FP_All)

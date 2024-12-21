@@ -268,7 +268,7 @@ import csv
 
 @torch.no_grad()
 def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True, is_mbt=False,
-                                     use_thresholds_for_artefacts = True, threshold_for_artefacts = 2.11, threshold_for_epilepsy = 1, path_output = "log_output.csv"):
+                                     use_thresholds_for_artefacts = True, threshold_for_artefacts = 2.11, threshold_for_epilepsy = 1, path_output = "log_output.csv", metrics_for_interval_label = True):
     input_chans = None
     if ch_names is not None:
         input_chans = utils.get_input_chans(ch_names)
@@ -312,7 +312,7 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
         out_label.extend(output.cpu().numpy())
 
         if is_mbt:
-            target = (target > 0).float()
+            target = (target > -0.01).float()
             output = output.int().cpu()   # 0,1,2 - sizors  3,4,5 - artefacts
             target = target.int()
             correct += (output == target.cpu()).int().sum()
@@ -324,6 +324,8 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
         loss = criterion(output.cpu().float(), target.cpu().float())
         output = output.cpu()
         target = target.cpu()
+        if 1 in target:
+            print("target: ", target)
         results = utils.get_metrics(output.numpy(), target.numpy(), metrics,
                                     (is_binary or is_mbt))
         pred.append(output)
@@ -352,6 +354,41 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
 
     pred = torch.cat(pred, dim=0).numpy()
     true = torch.cat(true, dim=0).numpy()
+
+    if metrics_for_interval_label:  # metrics estimation for dataset with labels for long intervals. if at least 1 time on interval label detected - correct.
+        True_negative_count = 0
+        True_positive_count = 0
+        False_negative_count = 0
+        False_positive_count = 0
+
+        i_true_begin = -1
+        i_true_end = -1
+        for i_true in range(1,len(true)):
+            if (true[i_true] == 1 and true[i_true-1] == 0) or (i_true==len(true)-1):  # end of 0 interval
+                i_true_begin = i_true                                                 # store begin of 1 interval
+                is_label_on_0_interval = False
+                for i in range(i_true_end+1, i_true_begin):
+                    if pred[i] == 1:
+                        False_positive_count += 1
+                        is_label_on_0_interval = True
+                        # break                                                       # lets count all False positive
+                if not is_label_on_0_interval:
+                    True_negative_count += 1
+
+            if (true[i_true] == 0 and true[i_true-1] == 1) or (i_true_begin>0 and i_true==len(true)-1):  # end of 1 interval
+                i_true_end = i_true-1                                                                    # store begin of 0 interval
+                is_label_on_1_interval = False
+                for i in range(i_true_begin, i_true_end):
+                    if pred[i] == 1:
+                        True_positive_count += 1
+                        is_label_on_1_interval = True
+                        break
+                if is_label_on_1_interval:
+                    False_negative_count += 1
+        print("TN: ",True_negative_count, "TP: ",True_positive_count, "FN: ",False_negative_count, "FP: ",False_positive_count)
+        return True_negative_count, True_positive_count, False_negative_count, False_positive_count
+
+
 
     ret = utils.get_metrics(pred, true, metrics, (is_binary or is_mbt), 0.5)
     ret['loss'] = metric_logger.loss.global_avg
