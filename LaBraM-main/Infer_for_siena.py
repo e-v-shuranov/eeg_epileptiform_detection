@@ -324,7 +324,7 @@ def main(args, ds_init):
         path_output = os.path.join(path_output, "log_output.csv")
         print(path_output)
         TN, TP, FN, FP = evaluate_for_mbt_binary_scenario(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
-                              is_binary=True, is_mbt = True, use_thresholds_for_artefacts = True, threshold_for_artefacts = -0.72, threshold_for_epilepsy = -5, path_output = path_output)
+                              is_binary=True, is_mbt = True, use_thresholds_for_artefacts = False, threshold_for_artefacts = -0.72, threshold_for_epilepsy = -5, path_output = path_output)
         return  TN, TP, FN, FP
         exit(0)
 

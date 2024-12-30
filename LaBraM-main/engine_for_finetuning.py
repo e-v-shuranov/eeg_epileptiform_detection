@@ -14,6 +14,7 @@ import torch
 from timm.utils import ModelEma
 import utils
 from einops import rearrange
+import pywt
 
 def train_class_batch(model, samples, target, criterion, ch_names):
     outputs = model(samples, ch_names)
@@ -267,13 +268,16 @@ def get_amplitude(x):
 import csv
 
 @torch.no_grad()
-def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True, is_mbt=False,
-                                     use_thresholds_for_artefacts = True, threshold_for_artefacts = 2.11, threshold_for_epilepsy = 1, path_output = "log_output.csv", metrics_for_interval_label = True):
+def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'],
+                                     is_binary=True, is_mbt=False, use_thresholds_for_artefacts=True,
+                                     threshold_for_artefacts=2.11, threshold_for_epilepsy=1,
+                                     path_output = "log_output.csv", metrics_for_interval_label=True, XGB_model=None):
+
     input_chans = None
     if ch_names is not None:
         input_chans = utils.get_input_chans(ch_names)
-    criterion = torch.nn.CrossEntropyLoss()
 
+    criterion = torch.nn.CrossEntropyLoss()
     metric_logger = utils.MetricLogger(delimiter="  ")
     # header = 'Test:'
 
@@ -289,6 +293,8 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
     art = 0
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
         EEG = batch[0]
+        EEG_xgb = batch[0]
+
         target = batch[-1]
         EEG = EEG.float().to(device, non_blocking=True) / 100
         EEG = rearrange(EEG, 'B N (A T) -> B N A T', T=200)
@@ -308,6 +314,7 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
                         (output.max(dim=1)[0] > threshold_for_epilepsy) * (output.argmax(dim=1) < 3)).float()
         else:
             output = (output.argmax(dim=1) < 3).float()
+
         time_index.extend(target.cpu().numpy())
         out_label.extend(output.cpu().numpy())
 
@@ -319,15 +326,40 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
             count_all += output.size(0)
             if use_thresholds_for_artefacts:
                 art += (output_artefacts.cpu()).int().sum()
+
         else:  # TUEV
             target = (target < 3).float()  # 2 classes only
         loss = criterion(output.cpu().float(), target.cpu().float())
-        output = output.cpu()
+
+        if XGB_model:
+            to_pred = []
+            for file in EEG_xgb:
+                coefficients = pywt.dwt(file.numpy(), 'haar')  # Perform discrete Haar wavelet transform
+                X = coefficients[0]
+                to_pred.append(X.reshape(4000))
+
+            xgb_answer = XGB_model.predict(to_pred)
+            binary_ans = []
+            for ans in xgb_answer:
+                if ans > 3:
+                    binary_ans.append(0)
+                else:
+                    binary_ans.append(1)
+
+            output = torch.tensor(binary_ans).float()
+
+        else:
+            output = output.cpu()
         target = target.cpu()
-        if 1 in target:
-            print("target: ", target)
+
+        # if 1 in target:
+        #     print("target: ", target)
+        # if 1 in output:
+        #     print("output: ", output)
+
         results = utils.get_metrics(output.numpy(), target.numpy(), metrics,
                                     (is_binary or is_mbt))
+
         pred.append(output)
         true.append(target)
 
@@ -375,7 +407,7 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
                 if not is_label_on_0_interval:
                     True_negative_count += 1
 
-            if (true[i_true] == 0 and true[i_true-1] == 1) or (i_true_begin>0 and i_true==len(true)-1):  # end of 1 interval
+            if (true[i_true] == 0 and true[i_true-1] == 1) or (i_true_begin>0 and i_true_begin<len(true)-1 and i_true==len(true)-1):  # end of 1 interval
                 i_true_end = i_true-1                                                                    # store begin of 0 interval
                 is_label_on_1_interval = False
                 for i in range(i_true_begin, i_true_end):
@@ -383,7 +415,7 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
                         True_positive_count += 1
                         is_label_on_1_interval = True
                         break
-                if is_label_on_1_interval:
+                if not is_label_on_1_interval:
                     False_negative_count += 1
         print("TN: ",True_negative_count, "TP: ",True_positive_count, "FN: ",False_negative_count, "FP: ",False_positive_count)
         return True_negative_count, True_positive_count, False_negative_count, False_positive_count
