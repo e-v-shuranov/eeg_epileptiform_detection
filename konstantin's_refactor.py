@@ -64,7 +64,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
         samples = samples.float().to(device, non_blocking=True) / 100
         samples = rearrange(samples, 'B N (A T) -> B N A T', T=200)
-        
+
         targets = targets.to(device, non_blocking=True)
         if is_binary:
             targets = targets.float().unsqueeze(-1)
@@ -115,7 +115,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             class_acc = utils.get_metrics(torch.sigmoid(output).detach().cpu().numpy(), targets.detach().cpu().numpy(), ["accuracy"], is_binary)["accuracy"]
         else:
             class_acc = (output.max(-1)[-1] == targets.squeeze()).float().mean()
-            
+
         metric_logger.update(loss=loss_value)
         metric_logger.update(class_acc=class_acc)
         metric_logger.update(loss_scale=loss_scale_value)
@@ -152,7 +152,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
 
 @torch.no_grad()
-def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True, is_mbt = False, from_multiclass_to_binary=False):
+def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True, is_mbt=False, from_multiclass_to_binary=False):
     input_chans = None
     if ch_names is not None:
         input_chans = utils.get_input_chans(ch_names)
@@ -234,7 +234,7 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
     metric_logger.synchronize_between_processes()
     print('* loss {losses.global_avg:.3f}'
           .format(losses=metric_logger.loss))
-    
+
     pred = torch.cat(pred, dim=0).numpy()
     true = torch.cat(true, dim=0).numpy()
 
@@ -246,6 +246,7 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
         else:
             print("mbt:  correct: ", correct, "All: ", count_all, "acc: ", correct/count_all)
     return ret
+
 
 
 import numpy as np
@@ -268,11 +269,14 @@ def get_amplitude(x):
 import csv
 
 
+
+
+
 @torch.no_grad()
 def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'],
                                      is_binary=True, is_mbt=False, use_thresholds_for_artefacts=True,
                                      threshold_for_artefacts=2.11, threshold_for_epilepsy=1,
-                                     path_output = "log_output.csv", metrics_for_interval_label=False, XGB_model=None):
+                                     path_output = "log_output.csv", metrics_for_interval_label=True, XGB_model=None):
     """
     Format - model and dataset should fit
      1 half banana
@@ -320,13 +324,16 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
         EEG = EEG.float().to(device, non_blocking=True) / 100
         EEG = rearrange(EEG, 'B N (A T) -> B N A T', T=200)
         target = target.to(device, non_blocking=True)
-        # for i in range(batch[0].size()[0]):            # plotting for debug
+        # for i in range(batch[0].size()[0]):
         #     for ch in range(batch[0].size()[1]):
         #         get_amplitude(batch[0][i][ch])
         # compute output
 
+
         with torch.cuda.amp.autocast():
             output = model(EEG, input_chans=input_chans)
+
+        # torch.cat((EEG, EEG), dim=2)
 
         if use_thresholds_for_artefacts:
             output_artefacts = (output[:, 3:6].max(dim=1)[0] > threshold_for_artefacts)
@@ -403,7 +410,7 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
     pred = torch.cat(pred, dim=0).numpy()
     true = torch.cat(true, dim=0).numpy()
 
-    if metrics_for_interval_label:  # metrics estimation for dataset with labels for long intervals (dataset Siena for example) . if at least 1 time on interval label detected - correct.
+    if metrics_for_interval_label:  # metrics estimation for dataset with labels for long intervals. if at least 1 time on interval label detected - correct.
         True_negative_count = 0
         True_positive_count = 0
         False_negative_count = 0
@@ -446,3 +453,146 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
         else:
             print("mbt:  correct: ", correct, "All: ", count_all, "acc: ", correct / count_all)
     return ret
+
+
+class BinaryEvaluation:
+    def __init__(self, data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'],
+                 dataset='TUEV', use_thresholds_for_artefacts=True, threshold_for_artefacts=2.11, threshold_for_epilepsy=1,
+                        path_output = "log_output.csv", metrics_for_interval_label=True):
+        self.data_loader = data_loader
+        self.device = device
+        self.metrics = metrics
+        self.dataset = dataset
+        self.path_output = path_output
+
+    def evaluate_mbt_binary(self, model, use_thresholds_for_artefacts=True, threshold_for_artefacts=2.11, threshold_for_epilepsy=1,
+                            metrics_for_interval_label=True, ch_names=None, header='Test'):
+
+        input_chans = utils.get_input_chans(ch_names) if ch_names else None
+        criterion = torch.nn.CrossEntropyLoss()
+        metric_logger = utils.MetricLogger(delimiter="  ")
+
+        # switch to evaluation mode
+        model.eval()
+        pred = []
+        true = []
+        correct = 0
+        count_all = 0
+
+        time_index = []
+        out_label = []
+        art = 0
+
+        for step, batch in enumerate(metric_logger.log_every(self.data_loader, 10, self.header)):
+            EEG = batch[0]
+            EEG_xgb = batch[0]
+
+            target = batch[-1]
+            EEG = EEG.float().to(self.device, non_blocking=True) / 100
+            EEG = rearrange(EEG, 'B N (A T) -> B N A T', T=200)
+            target = target.to(self.device, non_blocking=True)
+
+
+            with torch.cuda.amp.autocast():
+                output = model(EEG, input_chans=input_chans)
+
+            if use_thresholds_for_artefacts:
+                output_artefacts = (output[:, 3:6].max(dim=1)[0] > threshold_for_artefacts)
+                output = (~output_artefacts) * (
+                        (output.max(dim=1)[0] > threshold_for_epilepsy) * (output.argmax(dim=1) < 3)).float()
+            else:
+                output = (output.argmax(dim=1) < 3).float()
+
+            time_index.extend(target.cpu().numpy())
+            out_label.extend(output.cpu().numpy())
+
+            target = (target > -0.01).float()
+            output = output.int().cpu()  # 0,1,2 - sizors  3,4,5 - artefacts
+            target = target.int()
+
+            correct += (output == target.cpu()).int().sum()
+            count_all += output.size(0)
+            if use_thresholds_for_artefacts:
+                art += (output_artefacts.cpu()).int().sum()
+
+
+            loss = criterion(output.cpu().float(), target.cpu().float())
+
+            output = output.cpu()
+            target = target.cpu()
+
+            results = utils.get_metrics(output.numpy(), target.numpy(), self.metrics, True)
+
+            pred.append(output)
+            true.append(target)
+
+            batch_size = EEG.shape[0]
+            metric_logger.update(loss=loss.item())
+            for key, value in results.items():
+                metric_logger.meters[key].update(value, n=batch_size)
+            # metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
+
+        # store output
+        with open(self.path_output, 'w') as f:
+
+            # using csv.writer method from CSV package
+            write = csv.writer(f)
+
+            write.writerow(time_index)
+            write.writerow(out_label)
+
+        # gather the stats from all processes
+        metric_logger.synchronize_between_processes()
+        print('* loss {losses.global_avg:.3f}'
+              .format(losses=metric_logger.loss))
+
+        pred = torch.cat(pred, dim=0).numpy()
+        true = torch.cat(true, dim=0).numpy()
+
+        if metrics_for_interval_label:  # metrics estimation for dataset with labels for long intervals. if at least 1 time on interval label detected - correct.
+            True_negative_count = 0
+            True_positive_count = 0
+            False_negative_count = 0
+            False_positive_count = 0
+
+            i_true_begin = -1
+            i_true_end = -1
+            for i_true in range(1, len(true)):
+                if (true[i_true] == 1 and true[i_true - 1] == 0) or (i_true == len(true) - 1):  # end of 0 interval
+                    i_true_begin = i_true  # store begin of 1 interval
+                    is_label_on_0_interval = False
+                    for i in range(i_true_end + 1, i_true_begin):
+                        if pred[i] == 1:
+                            False_positive_count += 1
+                            is_label_on_0_interval = True
+                            # break                                               # lets count all False positive
+                    if not is_label_on_0_interval:
+                        True_negative_count += 1
+
+                if (true[i_true] == 0 and true[i_true - 1] == 1) or (
+                        i_true_begin > 0 and i_true_begin < len(true) - 1 and i_true == len(
+                        true) - 1):  # end of 1 interval
+                    i_true_end = i_true - 1  # store begin of 0 interval
+                    is_label_on_1_interval = False
+                    for i in range(i_true_begin, i_true_end):
+                        if pred[i] == 1:
+                            True_positive_count += 1
+                            is_label_on_1_interval = True
+                            break
+                    if not is_label_on_1_interval:
+                        False_negative_count += 1
+            print("TN: ", True_negative_count, "TP: ", True_positive_count, "FN: ", False_negative_count, "FP: ",
+                  False_positive_count)
+            return True_negative_count, True_positive_count, False_negative_count, False_positive_count
+
+        ret = utils.get_metrics(pred, true, metrics, (is_binary or is_mbt), 0.5)
+        ret['loss'] = metric_logger.loss.global_avg
+
+        if use_thresholds_for_artefacts:
+            print("mbt:  correct: ", correct, "All: ", count_all, "acc: ", correct / count_all, "art: ", art)
+        else:
+            print("mbt:  correct: ", correct, "All: ", count_all, "acc: ", correct / count_all)
+        return ret
+
+
+    def XGBoostevaluation(self):

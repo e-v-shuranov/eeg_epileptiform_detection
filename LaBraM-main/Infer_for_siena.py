@@ -75,7 +75,7 @@ def get_siena_dataset(args):
     return test_dataset, new_ch_names_to_128, metrics
 
 
-def main(args, ds_init):
+def main(args, ds_init,XGB_mod):
     utils.init_distributed_mode(args)
 
     if ds_init is not None:
@@ -324,7 +324,7 @@ def main(args, ds_init):
         path_output = os.path.join(path_output, "log_output.csv")
         print(path_output)
         TN, TP, FN, FP = evaluate_for_mbt_binary_scenario(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
-                              is_binary=True, is_mbt = True, use_thresholds_for_artefacts = False, threshold_for_artefacts = -0.72, threshold_for_epilepsy = -5, path_output = path_output)
+                              is_binary=True, is_mbt = True, use_thresholds_for_artefacts = False, threshold_for_artefacts = -0.72, threshold_for_epilepsy = -5, path_output = path_output, metrics_for_interval_label=True, XGB_model=XGB_mod)
         return  TN, TP, FN, FP
         exit(0)
 
@@ -336,6 +336,8 @@ if __name__ == "__main__":
 
     # experiment_name = "PN12-1.2"
     Path_dataset = "/media/public/Datasets/siena-scalp-eeg-database-1.0.0/processed_all_banana_half"
+    XGB_mod = pickle.load(open('xgb_model_wavelet.pkl', 'rb'))
+
     TN_All = 0
     TP_All = 0
     FN_All = 0
@@ -343,10 +345,10 @@ if __name__ == "__main__":
 
     for fname in os.listdir(Path_dataset):
         experiment_name = fname
-        TN, TP, FN, FP =  main(opts, ds_init)
+        TN, TP, FN, FP =  main(opts, ds_init,XGB_mod)
         TN_All += TN
         TP_All += TP
         FN_All += FN
         FP_All += FP
 
-    print("TN: ", TN_All, "TP: ", TP_All, "FN: ", FN_All, "FP: ", FP_All)
+    print("ALL   TN: ", TN_All, "TP: ", TP_All, "FN: ", FN_All, "FP: ", FP_All)

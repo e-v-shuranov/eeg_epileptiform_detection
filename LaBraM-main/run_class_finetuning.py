@@ -496,13 +496,17 @@ def main(args, ds_init):
         # print(f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
 
         XGB_mod = pickle.load(open('xgb_model_wavelet.pkl', 'rb'))
+        metrics_for_interval_label = False
 
         test_stats = evaluate_for_mbt_binary_scenario(data_loader_test, model, device, header='Test:',
                                                       ch_names=ch_names, metrics=metrics, is_binary=True,
                                                       is_mbt=False, use_thresholds_for_artefacts=False,
                                                       threshold_for_artefacts=-0.00005, threshold_for_epilepsy=-5,
-                                                      XGB_model=XGB_mod)
-        print(f"======Accuracy: on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%", "ALL tests: ", test_stats)
+                                                      metrics_for_interval_label = metrics_for_interval_label, XGB_model=None)
+        if metrics_for_interval_label:
+            print(test_stats)
+        else:
+            print(f"======Accuracy: on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%", "ALL tests: ", test_stats)
 
         exit(0)
 

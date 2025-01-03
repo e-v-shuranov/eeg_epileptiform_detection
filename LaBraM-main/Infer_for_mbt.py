@@ -336,8 +336,16 @@ def main(args, ds_init):
         if not os.path.exists(path_output):
             os.makedirs(path_output)
         path_output = os.path.join(path_output, "log_output.csv")
-        test_stats = evaluate_for_mbt_binary_scenario(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
-                              is_binary=True, is_mbt = True, use_thresholds_for_artefacts = True, threshold_for_artefacts = -0.54, threshold_for_epilepsy = -5, path_output = path_output)
+
+        test_stats = evaluate_for_mbt_binary_scenario(data_loader_test, model, device, header='Test:',
+                                                      ch_names=ch_names, metrics=metrics, is_binary=True,
+                                                      is_mbt=False, use_thresholds_for_artefacts=False,
+                                                      threshold_for_artefacts=-0.00005, threshold_for_epilepsy=-5, path_output = path_output,
+                                                      metrics_for_interval_label = metrics_for_interval_label, XGB_model=None)
+
+
+        # test_stats = evaluate_for_mbt_binary_scenario(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
+        #                       is_binary=True, is_mbt = True, use_thresholds_for_artefacts = True, threshold_for_artefacts = -0.54, threshold_for_epilepsy = -5, path_output = path_output)
         print(f"======Accuracy: on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%")
 
         exit(0)
