@@ -15,6 +15,7 @@ from timm.utils import ModelEma
 import utils
 from einops import rearrange
 import pywt
+import pickle
 
 def train_class_batch(model, samples, target, criterion, ch_names):
     outputs = model(samples, ch_names)
@@ -268,11 +269,13 @@ def get_amplitude(x):
 import csv
 
 
+
 @torch.no_grad()
 def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'],
                                      is_binary=True, is_mbt=False, use_thresholds_for_artefacts=True,
                                      threshold_for_artefacts=2.11, threshold_for_epilepsy=1,
-                                     path_output = "log_output.csv", metrics_for_interval_label=False, XGB_model=None):
+                                     path_output = "log_output.csv", metrics_for_interval_label=False, XGB_model=None,
+                                     store_embedings_for_fussion_train = False, path_emb_pkl = "emb.pkl", fussion_model=None):
     """
     Format - model and dataset should fit
      1 half banana
@@ -310,7 +313,9 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
     out_label = []
     art = 0
 
-
+    if store_embedings_for_fussion_train or fussion_model:
+        emb_for_store = []
+        target_for_fusion = []
 
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
         EEG = batch[0]
@@ -327,6 +332,12 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
 
         with torch.cuda.amp.autocast():
             output = model(EEG, input_chans=input_chans)
+
+
+        if store_embedings_for_fussion_train or fussion_model:     # store embedings for fusion model train
+            #     output target
+            emb_for_fussion_line = [output, target]
+
 
         if use_thresholds_for_artefacts:
             output_artefacts = (output[:, 3:6].max(dim=1)[0] > threshold_for_artefacts)
@@ -354,23 +365,31 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
         if XGB_model:
             to_pred = []
             for file in EEG_xgb:
-                coefficients = pywt.dwt(file.numpy(), 'haar')  # Perform discrete Haar wavelet transform
+                # coefficients = pywt.dwt(file.numpy(), 'haar')  # Perform discrete Haar wavelet transform
+                coefficients = pywt.wavedec(file.numpy(), wavelet='haar', level=4)
                 X = coefficients[0]
-                to_pred.append(X.reshape(4000))
+                # to_pred.append(X.reshape(4000))
+                to_pred.append(X.reshape(504))
 
-            xgb_answer = XGB_model.predict(to_pred)
-            binary_ans = []
-            for ans in xgb_answer:
-                if ans > 3:
-                    binary_ans.append(0)
-                else:
-                    binary_ans.append(1)
+            answer = XGB_model.predict_proba(to_pred)
 
-            output = torch.tensor(binary_ans).float()
+            # store embedings for fusion model train
+            if store_embedings_for_fussion_train or fussion_model:  # store embedings for fusion model train
+                target_for_fusion.extend(emb_for_fussion_line[1].cpu().numpy())
+                # emb_for_fussion_line=np.hstack([emb_for_fussion_line[0].cpu().numpy(),answer]) # answer.cpu().numpy()) #  output target  xgb_answer - xgb_answer should be improved by probabilities
+                emb_for_fussion_line=np.hstack([emb_for_fussion_line[0].cpu().numpy(),emb_for_fussion_line[0].cpu().numpy()]) # answer.cpu().numpy()) #  output target  xgb_answer - xgb_answer should be improved by probabilities
+
+                emb_for_store.extend(emb_for_fussion_line)
+                # Using fusion model
+                if fussion_model:
+                    answer = fussion_model.predict(emb_for_fussion_line)
+
+            output = torch.tensor(answer.argmax(1) < 3).float()
 
         else:
             output = output.cpu()
         target = target.cpu()
+
 
 
         results = utils.get_metrics(output.numpy(), target.numpy(), metrics,
@@ -384,6 +403,16 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
         for key, value in results.items():
             metric_logger.meters[key].update(value, n=batch_size)
         # metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
+
+    if False:
+        with open(path_emb_pkl, 'rb') as handle:
+            emb_for_store_old = pickle.load(handle)
+        print(emb_for_store_old, emb_for_store)
+
+    if True and store_embedings_for_fussion_train:
+        with open(path_emb_pkl, 'wb') as handle:
+            pickle.dump([emb_for_store,target_for_fusion], handle) #, protocol=pickle.HIGHEST_PROTOCOL)
+
 
 
     #store output
