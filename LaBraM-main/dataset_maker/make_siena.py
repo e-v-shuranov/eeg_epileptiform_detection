@@ -56,7 +56,7 @@ def BuildEvents(signals, times, EventData):
 
         features[i, :] = signals[
             :, offset + start - 2 * int(fs) : offset + end + 2 * int(fs)
-        ]
+        ]                                                                   !!!!error:  start - 2 : start + 2  is 4 sec but we need 5 sec.
         offending_channel[i, :] = int(chan)
         labels[i, :] = int(EventData[i, 3])
     return [features, offending_channel, labels]

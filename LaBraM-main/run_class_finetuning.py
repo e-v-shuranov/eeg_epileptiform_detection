@@ -383,7 +383,7 @@ def main(args, ds_init):
                     new_dict[key[8:]] = checkpoint_model[key]
                 else:
                     pass
-            checkpoint_model = new_dict
+            # checkpoint_model = new_dict
 
         state_dict = model.state_dict()
         for k in ['head.weight', 'head.bias']:
@@ -481,7 +481,7 @@ def main(args, ds_init):
 
     print("criterion = %s" % str(criterion))
 
-    if True:   #use pretrain (False) or finetune (True)
+    if False:   #use pretrain (False) or finetune (True)
         utils.auto_load_model(
             args=args, model=model, model_without_ddp=model_without_ddp,
             optimizer=optimizer, loss_scaler=loss_scaler, model_ema=model_ema)
@@ -498,15 +498,15 @@ def main(args, ds_init):
         # print(f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
 
         path_for_emb_storage = "/media/public/Datasets/TUEV/tuev/edf/emb_for_fusion_half_banana/emb.pkl"
-        XGB_mod = pickle.load(open('xgb_model_wav4.pkl', 'rb'))
+        XGB_mod = pickle.load(open('xgb_model_4_level.pkl', 'rb'))
         metrics_for_interval_label = False
 
-        test_stats = evaluate_for_mbt_binary_scenario(data_loader_train, model, device, header='Test:',
+        test_stats = evaluate_for_mbt_binary_scenario(data_loader_test, model, device, header='Test:',
                                                       ch_names=ch_names, metrics=metrics, is_binary=True,
                                                       is_mbt=False, use_thresholds_for_artefacts=False,
                                                       threshold_for_artefacts=-0.00005, threshold_for_epilepsy=-5,
                                                       metrics_for_interval_label = metrics_for_interval_label, XGB_model=XGB_mod,
-                                                      store_embedings_for_fussion_train = True, path_emb_pkl = path_for_emb_storage)
+                                                      store_embedings_for_fussion_train = False, path_emb_pkl = path_for_emb_storage)
         if metrics_for_interval_label:
             print(test_stats)
         else:

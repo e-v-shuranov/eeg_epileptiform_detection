@@ -275,7 +275,7 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
                                      is_binary=True, is_mbt=False, use_thresholds_for_artefacts=True,
                                      threshold_for_artefacts=2.11, threshold_for_epilepsy=1,
                                      path_output = "log_output.csv", metrics_for_interval_label=False, XGB_model=None,
-                                     store_embedings_for_fussion_train = False, path_emb_pkl = "emb.pkl", fussion_model=None):
+                                     store_embedings_for_fussion_train = False, path_emb_pkl = "emb.pkl", fussion_model=None, wavelet_level_4=True):
     """
     Format - model and dataset should fit
      1 half banana
@@ -365,24 +365,29 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
         if XGB_model:
             to_pred = []
             for file in EEG_xgb:
-                # coefficients = pywt.dwt(file.numpy(), 'haar')  # Perform discrete Haar wavelet transform
-                coefficients = pywt.wavedec(file.numpy(), wavelet='haar', level=4)
-                X = coefficients[0]
-                # to_pred.append(X.reshape(4000))
-                to_pred.append(X.reshape(504))
+                if wavelet_level_4:
+                    coefficients = pywt.wavedec(file.numpy(), wavelet='haar', level=4)
+                    X = coefficients[0]
+                    to_pred.append(X.reshape(504))
+                else:
+                    coefficients = pywt.dwt(file.numpy(), 'haar')  # Perform discrete Haar wavelet transform
+                    X = coefficients[0]
+                    to_pred.append(X.reshape(4000))
 
             answer = XGB_model.predict_proba(to_pred)
 
             # store embedings for fusion model train
             if store_embedings_for_fussion_train or fussion_model:  # store embedings for fusion model train
                 target_for_fusion.extend(emb_for_fussion_line[1].cpu().numpy())
-                # emb_for_fussion_line=np.hstack([emb_for_fussion_line[0].cpu().numpy(),answer]) # answer.cpu().numpy()) #  output target  xgb_answer - xgb_answer should be improved by probabilities
-                emb_for_fussion_line=np.hstack([emb_for_fussion_line[0].cpu().numpy(),emb_for_fussion_line[0].cpu().numpy()]) # answer.cpu().numpy()) #  output target  xgb_answer - xgb_answer should be improved by probabilities
+                emb_for_fussion_line=np.hstack([emb_for_fussion_line[0].cpu().numpy(),answer]) # answer.cpu().numpy()) #  output target  xgb_answer - xgb_answer should be improved by probabilities
+                # emb_for_fussion_line=np.hstack([emb_for_fussion_line[0].cpu().numpy(),emb_for_fussion_line[0].cpu().numpy()]) # answer.cpu().numpy()) #  output target  xgb_answer - xgb_answer should be improved by probabilities
 
                 emb_for_store.extend(emb_for_fussion_line)
                 # Using fusion model
                 if fussion_model:
-                    answer = fussion_model.predict(emb_for_fussion_line)
+                    # answer = fussion_model.predict(emb_for_fussion_line)
+                    answer = fussion_model(torch.tensor(emb_for_fussion_line, dtype=torch.float32))
+
 
             output = torch.tensor(answer.argmax(1) < 3).float()
 
@@ -409,7 +414,7 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
             emb_for_store_old = pickle.load(handle)
         print(emb_for_store_old, emb_for_store)
 
-    if True and store_embedings_for_fussion_train:
+    if store_embedings_for_fussion_train:
         with open(path_emb_pkl, 'wb') as handle:
             pickle.dump([emb_for_store,target_for_fusion], handle) #, protocol=pickle.HIGHEST_PROTOCOL)
 
