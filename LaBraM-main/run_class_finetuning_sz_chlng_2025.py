@@ -17,7 +17,6 @@ import torch
 import torch.backends.cudnn as cudnn
 import json
 import os
-import pickle
 
 from pathlib import Path
 from collections import OrderedDict
@@ -25,15 +24,16 @@ from timm.data.mixup import Mixup
 from timm.models import create_model
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
 from timm.utils import ModelEma
-
-from EEG2Rep.Models.utils import load_model
 from optim_factory import create_optimizer, get_parameter_groups, LayerDecayValueAssigner
 
-from engine_for_finetuning import train_one_epoch, evaluate, evaluate_for_mbt_binary_scenario
+# from engine_for_finetuning import train_one_epoch, evaluate
+from engine_for_finetuning_sz_chlng_2025 import train_one_epoch, evaluate
+
 from utils import NativeScalerWithGradNormCount as NativeScaler
 import utils
 from scipy import interpolate
 import modeling_finetune
+
 
 def get_args():
     parser = argparse.ArgumentParser('LaBraM fine-tuning and evaluation script for EEG classification', add_help=False)
@@ -45,7 +45,7 @@ def get_args():
     # robust evaluation
     parser.add_argument('--robust_test', default=None, type=str,
                         help='robust evaluation dataset')
-    
+
     # Model parameters
     parser.add_argument('--model', default='labram_base_patch200_200', type=str, metavar='MODEL',
                         help='Name of model to train')
@@ -57,9 +57,7 @@ def get_args():
     parser.set_defaults(rel_pos_bias=True)
     parser.add_argument('--abs_pos_emb', action='store_true')
     parser.set_defaults(abs_pos_emb=False)
-    parser.add_argument('--is_mbt_size', action='store_true')
-    parser.set_defaults(is_mbt_size=False)
-    parser.add_argument('--layer_scale_init_value', default=0.1, type=float, 
+    parser.add_argument('--layer_scale_init_value', default=0.1, type=float,
                         help="0.1 for base, 1e-5 for large. set 0 to disable layer scale")
 
     parser.add_argument('--input_size', default=200, type=int,
@@ -142,13 +140,10 @@ def get_args():
                         help='path where to save, empty for no saving')
     parser.add_argument('--fixed_chkpt', default='',
                         help='path for fixed checkpoint for evaluation or continue')
-
     parser.add_argument('--log_dir', default=None,
                         help='path where to tensorboard log')
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing')
-    # parser.add_argument('--device', default='cpu',
-    #                     help='device to use for training / testing')
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--resume', default='',
                         help='resume from checkpoint')
@@ -200,6 +195,7 @@ def get_args():
 
     return parser.parse_args(), ds_init
 
+
 def get_models(args):
     model = create_model(
         args.model,
@@ -215,7 +211,6 @@ def get_models(args):
         use_abs_pos_emb=args.abs_pos_emb,
         init_values=args.layer_scale_init_value,
         qkv_bias=args.qkv_bias,
-        is_mbt_size=args.is_mbt_size,
     )
 
     return model
@@ -224,29 +219,15 @@ def get_models(args):
 def get_dataset(args):
     if args.dataset == 'TUAB':
         train_dataset, test_dataset, val_dataset = utils.prepare_TUAB_dataset("path/to/TUAB")
-        ch_names = ['EEG FP1', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
-                    'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
+        ch_names = ['EEG FP1', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF',
+                    'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
+                    'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF',
+                    'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
         ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
         args.nb_classes = 1
         metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
     elif args.dataset == 'TUEV':
-        # train_dataset, test_dataset, val_dataset = utils.prepare_TUEV_dataset("/home/eshuranov/projects/eeg_epileptiform_detection/EEG2Rep/Dataset/TUEV/tuev/edf/processed")
         train_dataset, test_dataset, val_dataset = utils.prepare_TUEV_dataset("/media/public/Datasets/TUEV/tuev/edf/processed_sz_chalenge_2025_montage")
-        ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
-                    'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
-        ch_names_after_convert = ['FP1-F7', 'F7-T3', 'T3-T5', 'T5-O1',
-                                  'FP2-F8', 'F8-T4', 'T4-T6', 'T6-O2',
-                                  'FP1-F3', 'F3-C3', 'C3-P3', 'P3-O1',
-                                  'FP2-F4', 'F4-C4', 'C4-P4', 'P4-O2']
-
-        new_ch_names = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1",
-                        "FP2-F8", "F8-T8", "T8-P8", "P8-O2",
-                        "FP1-F3", "F3-C3", "C3-P3", "P3-O1",
-                        "FP2-F4", "F4-C4", "C4-P4", "P4-O2"]
-
-        new_ch_names_to_128 = ["FP1-F7", "F7-T7", "T7-P7", "P7-O1",                   #use this for half banana
-                        "FP2-F8", "F8-T8", "T8-P8", "P8-O2"]
-
         ch_names_after_convert_sz_chalenge_2025_montage = ['FP1-Avg', 'F3-Avg', 'C3-Avg', 'P3-Avg',
                                                            'O1-Avg', 'F7-Avg', 'T3-Avg', 'T5-Avg',
                                                            'FZ-Avg', 'CZ-Avg', 'PZ-Avg', 'FP2-Avg',
@@ -258,11 +239,8 @@ def get_dataset(args):
                                'FZ', 'CZ', 'PZ', 'FP2',
                                'F4', 'C4', 'P4', 'O2',
                                'F8', 'T4', 'T6']
-
-
-        ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names_after_convert]
         args.nb_classes = 6
-        metrics = ["accuracy", "balanced_accuracy", "cohen_kappa"]
+        metrics = ["accuracy", "balanced_accuracy", "cohen_kappa", "f1_weighted"]
     return train_dataset, test_dataset, val_dataset, standard_1020_subset, metrics
 
 
@@ -348,8 +326,7 @@ def main(args, ds_init):
                 batch_size=int(1.5 * args.batch_size),
                 num_workers=args.num_workers,
                 pin_memory=args.pin_mem,
-                drop_last=False,
-                shuffle=False    # debug
+                drop_last=False
             ) for dataset, sampler in zip(dataset_test, sampler_test)]
         else:
             data_loader_test = torch.utils.data.DataLoader(
@@ -357,8 +334,7 @@ def main(args, ds_init):
                 batch_size=int(1.5 * args.batch_size),
                 num_workers=args.num_workers,
                 pin_memory=args.pin_mem,
-                drop_last=False,
-                shuffle = False   # debug
+                drop_last=False
             )
     else:
         data_loader_val = None
@@ -395,7 +371,7 @@ def main(args, ds_init):
                     new_dict[key[8:]] = checkpoint_model[key]
                 else:
                     pass
-            # checkpoint_model = new_dict
+            checkpoint_model = new_dict
 
         state_dict = model.state_dict()
         for k in ['head.weight', 'head.bias']:
@@ -438,7 +414,8 @@ def main(args, ds_init):
 
     num_layers = model_without_ddp.get_num_layers()
     if args.layer_decay < 1.0:
-        assigner = LayerDecayValueAssigner(list(args.layer_decay ** (num_layers + 1 - i) for i in range(num_layers + 2)))
+        assigner = LayerDecayValueAssigner(
+            list(args.layer_decay ** (num_layers + 1 - i) for i in range(num_layers + 2)))
     else:
         assigner = None
 
@@ -469,7 +446,7 @@ def main(args, ds_init):
 
         optimizer = create_optimizer(
             args, model_without_ddp, skip_list=skip_weight_decay_list,
-            get_num_layer=assigner.get_layer_id if assigner is not None else None, 
+            get_num_layer=assigner.get_layer_id if assigner is not None else None,
             get_layer_scale=assigner.get_scale if assigner is not None else None)
         loss_scaler = NativeScaler()
 
@@ -493,36 +470,25 @@ def main(args, ds_init):
 
     print("criterion = %s" % str(criterion))
 
-    if False:   #use pretrain (False) or finetune (True)
-        utils.auto_load_model(
-            args=args, model=model, model_without_ddp=model_without_ddp,
-            optimizer=optimizer, loss_scaler=loss_scaler, model_ema=model_ema)
-            
-    if True: #args.eval:
-        # default: data_loader_test  (could be replaced: data_loader_val or data_loader_train)
+    utils.auto_load_model(
+        args=args, model=model, model_without_ddp=model_without_ddp,
+        optimizer=optimizer, loss_scaler=loss_scaler, model_ema=model_ema)
 
+    if True: #args.eval:
         # balanced_accuracy = []
         # accuracy = []
         # for data_loader in data_loader_test:
-        #     test_stats = evaluate(data_loader, model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=(args.nb_classes == 1))
+        #     test_stats = evaluate(data_loader, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
+        #                           is_binary=(args.nb_classes == 1))
         #     accuracy.append(test_stats['accuracy'])
         #     balanced_accuracy.append(test_stats['balanced_accuracy'])
-        # print(f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
+        # print(
+        #     f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
 
-        path_for_emb_storage = "/media/public/Datasets/TUEV/tuev/edf/emb_for_fusion_half_banana/emb.pkl"
-        XGB_mod = pickle.load(open('xgb_model_4_level.pkl', 'rb'))
-        metrics_for_interval_label = False
-
-        test_stats = evaluate_for_mbt_binary_scenario(data_loader_test, model, device, header='Test:',
-                                                      ch_names=ch_names, metrics=metrics, is_binary=True,
-                                                      is_mbt=False, use_thresholds_for_artefacts=False,
-                                                      threshold_for_artefacts=-0.00005, threshold_for_epilepsy=-5,
-                                                      metrics_for_interval_label = metrics_for_interval_label, XGB_model=None,
-                                                      store_embedings_for_fussion_train = False, path_emb_pkl = path_for_emb_storage)
-        if metrics_for_interval_label:
-            print(test_stats)
-        else:
-            print(f"======Accuracy: on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%", "ALL tests: ", test_stats)
+        test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
+                              is_binary=(args.nb_classes == 1))
+        print(f"======Accuracy: on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%", "ALL tests: ",
+              test_stats)
 
         exit(0)
 
@@ -540,21 +506,23 @@ def main(args, ds_init):
             device, epoch, loss_scaler, args.clip_grad, model_ema,
             log_writer=log_writer, start_steps=epoch * num_training_steps_per_epoch,
             lr_schedule_values=lr_schedule_values, wd_schedule_values=wd_schedule_values,
-            num_training_steps_per_epoch=num_training_steps_per_epoch, update_freq=args.update_freq, 
+            num_training_steps_per_epoch=num_training_steps_per_epoch, update_freq=args.update_freq,
             ch_names=ch_names, is_binary=args.nb_classes == 1
         )
-        
+
         if args.output_dir and args.save_ckpt:
             utils.save_model(
                 args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                 loss_scaler=loss_scaler, epoch=epoch, model_ema=model_ema, save_ckpt_freq=args.save_ckpt_freq)
-            
+
         if data_loader_val is not None:
-            val_stats = evaluate(data_loader_val, model, device, header='Val:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1, is_mbt = False)
+            val_stats = evaluate(data_loader_val, model, device, header='Val:', ch_names=ch_names, metrics=metrics,
+                                 is_binary=args.nb_classes == 1)
             print(f"Accuracy of the network on the {len(dataset_val)} val EEG: {val_stats['accuracy']:.2f}%")
-            test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1, is_mbt = False)
+            test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
+                                  is_binary=args.nb_classes == 1)
             print(f"Accuracy of the network on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%")
-            
+
             if max_accuracy < val_stats["accuracy"]:
                 max_accuracy = val_stats["accuracy"]
                 if args.output_dir and args.save_ckpt:
@@ -595,7 +563,7 @@ def main(args, ds_init):
                         log_writer.update(cohen_kappa=value, head="test", step=epoch)
                     elif key == 'loss':
                         log_writer.update(loss=value, head="test", step=epoch)
-                
+
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          **{f'val_{k}': v for k, v in val_stats.items()},
                          **{f'test_{k}': v for k, v in test_stats.items()},
