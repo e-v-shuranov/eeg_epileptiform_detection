@@ -282,22 +282,21 @@ def load_up_objects(BaseDir, Features, OffendingChannels, Labels, OutDir, banana
                 except (ValueError, KeyError):
                     print("something funky happened in " + dirName + "/" + fname)
                     continue
-                signals, offending_channels, labels = BuildEvents(signals, times, event)
+                # signals, offending_channels, labels = BuildEvents(signals, times, event)
 
-                for idx, (signal, offending_channel, label) in enumerate(
-                    zip(signals, offending_channels, labels)
-                ):
-                    sample = {
-                        "signal": signal,
-                        "offending_channel": offending_channel,
-                        "label": label,
-                    }
-                    save_pickle(
-                        sample,
-                        os.path.join(
-                            OutDir, fname.split(".")[0] + "-" + str(idx) + ".pkl"
-                        ),
-                    )
+                # for idx, (signal, event_i) in enumerate(
+                #     zip(signals, event)
+                # ):
+                sample = {
+                    "signal": signals,
+                    "event": event,
+                }
+                save_pickle(
+                    sample,
+                    os.path.join(
+                        OutDir, fname.split(".")[0] + "_processed.pkl"
+                    ),
+                )
 
     return Features, Labels, OffendingChannels
 
@@ -383,8 +382,8 @@ if is_random_val:
     train_files = [f for f in train_files if f.split("_")[0] in train_sub]
 else:
     num_of_val = int(len(train_sub)*0.2)
-    val_files = train_files[num_of_val:]
-    train_files = train_files[:num_of_val]
+    train_files = train_files[num_of_val:]
+    val_files = train_files[:num_of_val]
 
 
 if banana_half_montage:

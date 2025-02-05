@@ -14,12 +14,109 @@ import torch
 from timm.utils import ModelEma
 import utils
 from einops import rearrange
+from sz_metrics import f1_sz_estimation
 
 
-def train_class_batch(model, samples, target, criterion, ch_names):
-    outputs = model(samples, ch_names)
-    loss = criterion(outputs, target)
-    return loss, outputs
+def resample_tensor(tensor, new_freq=10):
+    # Исходная частота дискретизации
+    old_freq = 200
+
+    # Размер исходного тензора
+    channels , time_len  = tensor.shape
+
+    # Время одной выборки в секундах
+    dt_old = 1 / old_freq
+    dt_new = 1 / new_freq
+
+    # Количество временных шагов в новой временной шкале
+    new_time_len = int(time_len * dt_old // dt_new)
+
+    # Новый тензор для хранения результата
+    new_tensor = torch.zeros((new_time_len, channels, 5*old_freq))
+
+    # Границы интервала для каждого нового временного шага
+    window_start = -int(2 * old_freq)
+    window_end = int(3 * old_freq)
+
+    for i in range(new_time_len):
+        t_center = int(i * dt_new / dt_old)
+
+        start_idx = max(window_start + t_center, 0)
+        end_idx = min(window_end + t_center, time_len)
+
+        if start_idx == 0:
+            # Если начало окна выходит за пределы начала тензора,
+            # используем padding
+            pad_left = abs(int(5 * old_freq) - end_idx)
+            padded_slice = torch.cat([tensor[:,:pad_left], tensor[:,start_idx:end_idx]], dim=1)
+        elif end_idx == time_len:
+            # Если конец окна выходит за пределы конца тензора,
+            # используем padding
+            pad_right = abs(2*time_len - int(5 * old_freq) - start_idx )
+            padded_slice = torch.cat([tensor[:,start_idx:end_idx], tensor[:,pad_right:]], dim=1)
+        else:
+            # Если окно полностью внутри границ тензора
+            padded_slice = tensor[:,start_idx:end_idx]
+
+        new_tensor[i] = padded_slice
+
+    return new_tensor
+
+
+def get_events_based_data(signals_torch, event_data_torch):
+    # Преобразование входных данных в тензоры PyTorch
+    # signals_torch = torch.from_numpy(signals).float()
+    # times_torch = torch.from_numpy(times).float()
+    # event_data_torch = torch.from_numpy(event_data).long()
+
+    # Параметры
+    fs = 10.0
+    num_channels, num_points = signals_torch.shape
+    # num_events = event_data_torch.size(0)
+
+    # Вычисление индексов для срезов
+    feature_index_start = event_data_torch[:, 1].sub_(2 * fs).mul_(-1).add_(num_points)
+    feature_index_end = event_data_torch[:, 2].add_(2 * fs).mul_(-1).add_(num_points)
+
+    # # Создание пустого тензора для результатов
+    # features = torch.empty(num_events, num_channels, int(fs) * 5)
+    #
+    # # Заполнение тензоров
+    # for i in range(num_events):
+    #     features[i] = signals_torch[:, feature_index_start[i]:feature_index_end[i]]
+
+    # Индексы событий
+    feature_indexes = torch.stack([feature_index_start, feature_index_end], dim=-1)
+
+    # Метки и номера каналов
+    # offending_channel = event_data_torch[:, 0].unsqueeze(dim=1)
+    labels = event_data_torch[:, 3].unsqueeze(dim=1)
+
+    return feature_indexes, labels
+
+def train_class_batch(model, samples, target, criterion, ch_names, max_batch_size):
+    old_fs = 200  # in samples
+    new_fs = 10   # in outputs
+
+    n_samples = int(samples.shape[2] /old_fs* new_fs)
+    n_batches = int(n_samples / max_batch_size + 1)
+    outputs = torch.zeros((n_samples, 6)).to(samples.device, non_blocking=True)
+    for i in range(n_batches):
+        start_pos = int(i*max_batch_size/new_fs*old_fs)
+        end_pos = int((i+1)*max_batch_size/new_fs*old_fs)
+        smple_5_sec = resample_tensor(samples[0,:,start_pos:end_pos], new_freq=10)
+        # smple_5_sec = resample_tensor(samples[i*max_batch_size:(i+1)*max_batch_size], new_freq=10)
+        smple_5_sec = rearrange(smple_5_sec, 'B N (A T) -> B N A T', T=200).float().to(samples.device, non_blocking=True)
+        outputs[i*max_batch_size:(i+1)*max_batch_size] = model(smple_5_sec, ch_names)
+    outputs_indexes_of_events, targets = get_events_based_data(outputs, target)
+    loss = criterion(outputs[outputs_indexes_of_events], targets)
+
+    # ref = (target < 3)
+    # hyp = (outputs.argmax(1) < 3)
+    # add_loss_for_f1_sz_estimation=1 - f1_sz_estimation(hyp,ref)
+    add_loss_for_f1_sz_estimation = 0
+    alpha = 1
+    return loss + alpha * add_loss_for_f1_sz_estimation, outputs
 
 
 def get_loss_scale_for_deepspeed(model):
@@ -27,12 +124,12 @@ def get_loss_scale_for_deepspeed(model):
     return optimizer.loss_scale if hasattr(optimizer, "loss_scale") else optimizer.cur_scale
 
 
-def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
+def train_one_epoch_sz_chlng_2025(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, loss_scaler, max_norm: float = 0,
                     model_ema: Optional[ModelEma] = None, log_writer=None,
                     start_steps=None, lr_schedule_values=None, wd_schedule_values=None,
-                    num_training_steps_per_epoch=None, update_freq=None, ch_names=None, is_binary=True):
+                    num_training_steps_per_epoch=None, update_freq=None, ch_names=None, is_binary=True, max_batch_size=512):
     input_chans = None
     if ch_names is not None:
         input_chans = utils.get_input_chans(ch_names)
@@ -63,7 +160,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     param_group["weight_decay"] = wd_schedule_values[it]
 
         samples = samples.float().to(device, non_blocking=True) / 100
-        samples = rearrange(samples, 'B N (A T) -> B N A T', T=200)
+        # samples = rearrange(samples, 'B N (A T) -> B N A T', T=200)
 
         targets = targets.to(device, non_blocking=True)
         if is_binary:
@@ -72,11 +169,11 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         if loss_scaler is None:
             samples = samples.half()
             loss, output = train_class_batch(
-                model, samples, targets, criterion, input_chans)
+                model, samples, targets, criterion, input_chans, max_batch_size)
         else:
             with torch.cuda.amp.autocast():
                 loss, output = train_class_batch(
-                    model, samples, targets, criterion, input_chans)
+                    model, samples, targets, criterion, input_chans, max_batch_size)
 
         loss_value = loss.item()
 

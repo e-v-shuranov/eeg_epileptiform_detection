@@ -65,6 +65,9 @@ def get_args():
     parser.add_argument('--input_size', default=200, type=int,
                         help='EEG input size')
 
+    parser.add_argument('--max_batch_size', default=512, type=int,
+                        help='limitation of max number of 5sec samples that could be sended to modal. Using for big eeg files to calculate metrics for sz chalenge 2025')
+
     parser.add_argument('--drop', type=float, default=0.0, metavar='PCT',
                         help='Dropout rate (default: 0.)')
     parser.add_argument('--attn_drop_rate', type=float, default=0.0, metavar='PCT',
@@ -498,7 +501,7 @@ def main(args, ds_init):
             args=args, model=model, model_without_ddp=model_without_ddp,
             optimizer=optimizer, loss_scaler=loss_scaler, model_ema=model_ema)
             
-    if True: #args.eval:
+    if False: #args.eval:
         # default: data_loader_test  (could be replaced: data_loader_val or data_loader_train)
 
         # balanced_accuracy = []

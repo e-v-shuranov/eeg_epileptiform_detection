@@ -1,0 +1,1 @@
+python -m szcore_evaluation.evaluate /media/public/Datasets/epilepsybenchmarks_chellenge/BIDS_Siena_test/ /media/public/Datasets/epilepsybenchmarks_chellenge/BIDS_Siena_result_test/ /home/eshuranov/projects/test/res.json

@@ -37,7 +37,7 @@ import pandas as pd
 from sklearn.metrics import r2_score
 from sklearn.metrics import mean_squared_error
 from scipy.stats import pearsonr
-
+import re
 
 standard_1020 = [
     'FP1', 'FPZ', 'FP2', 
@@ -738,11 +738,28 @@ class TUABLoader(torch.utils.data.Dataset):
         Y = sample["y"]
         X = torch.FloatTensor(X)
         return X, Y
-    
+
+def tryint(s):
+    try:
+        return int(s)
+    except:
+        return s
+
+def alphanum_key(s):
+    """ Turn a string into a list of string and number chunks.
+        "z23a" -> ["z", 23, "a"]
+    """
+    return [tryint(c) for c in re.split('([0-9]+)', s)]
+
+def sort_nicely(l):
+    """ Sort the given list in the way that humans expect.
+    """
+    l.sort(key=alphanum_key)
 
 class TUEVLoader(torch.utils.data.Dataset):
     def __init__(self, root, files, sampling_rate=200):
         self.root = root
+        sort_nicely(files)
         self.files = files
         self.default_rate = 200
         self.sampling_rate = sampling_rate
@@ -756,6 +773,7 @@ class TUEVLoader(torch.utils.data.Dataset):
         if self.sampling_rate != self.default_rate:
             X = resample(X, 5 * self.sampling_rate, axis=-1)
         Y = int(sample["label"][0] - 1)
+        Y = index
         X = torch.FloatTensor(X)
         return X, Y
     
@@ -765,9 +783,9 @@ def prepare_TUEV_dataset(root):
     seed = 4523
     np.random.seed(seed)
 
-    train_path = os.path.join(root, "processed_train_sz_chalenge_2025_montage")
-    eval_path = os.path.join(root, "processed_eval_sz_chalenge_2025_montage")
-    test_path = os.path.join(root, "processed_test_sz_chalenge_2025_montage")
+    train_path = os.path.join(root, "train")
+    eval_path = os.path.join(root, "eval")
+    test_path = os.path.join(root, "test")
 
     train_files = os.listdir(train_path)
     val_files = os.listdir(eval_path)
