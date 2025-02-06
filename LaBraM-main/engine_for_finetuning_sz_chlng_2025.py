@@ -11,13 +11,15 @@ import math
 import sys
 from typing import Iterable, Optional
 import torch
+from pyarrow.compute import random
 from timm.utils import ModelEma
 import utils
 from einops import rearrange
-from sz_metrics import f1_sz_estimation
+from sz_metrics import f1_sz_estimation, labram_events_to_sz_events
+import numpy as np
 
 
-def resample_tensor(tensor, new_freq=10):
+def resample_tensor(tensor, new_freq=1):
     # Исходная частота дискретизации
     old_freq = 200
 
@@ -29,17 +31,17 @@ def resample_tensor(tensor, new_freq=10):
     dt_new = 1 / new_freq
 
     # Количество временных шагов в новой временной шкале
-    new_time_len = int(time_len * dt_old // dt_new)
+    new_time_len = round(time_len * dt_old // dt_new)
 
     # Новый тензор для хранения результата
     new_tensor = torch.zeros((new_time_len, channels, 5*old_freq))
 
     # Границы интервала для каждого нового временного шага
-    window_start = -int(2 * old_freq)
-    window_end = int(3 * old_freq)
+    window_start = -round(2 * old_freq)
+    window_end = round(3 * old_freq)
 
     for i in range(new_time_len):
-        t_center = int(i * dt_new / dt_old)
+        t_center = round(i * dt_new / dt_old)
 
         start_idx = max(window_start + t_center, 0)
         end_idx = min(window_end + t_center, time_len)
@@ -47,76 +49,84 @@ def resample_tensor(tensor, new_freq=10):
         if start_idx == 0:
             # Если начало окна выходит за пределы начала тензора,
             # используем padding
-            pad_left = abs(int(5 * old_freq) - end_idx)
+            pad_left = abs(round(5 * old_freq) - end_idx)
             padded_slice = torch.cat([tensor[:,:pad_left], tensor[:,start_idx:end_idx]], dim=1)
         elif end_idx == time_len:
             # Если конец окна выходит за пределы конца тензора,
             # используем padding
-            pad_right = abs(2*time_len - int(5 * old_freq) - start_idx )
+            pad_right = abs(2*time_len - round(5 * old_freq) - start_idx )
             padded_slice = torch.cat([tensor[:,start_idx:end_idx], tensor[:,pad_right:]], dim=1)
         else:
             # Если окно полностью внутри границ тензора
             padded_slice = tensor[:,start_idx:end_idx]
-
         new_tensor[i] = padded_slice
 
     return new_tensor
 
 
-def get_events_based_data(signals_torch, event_data_torch):
-    # Преобразование входных данных в тензоры PyTorch
-    # signals_torch = torch.from_numpy(signals).float()
-    # times_torch = torch.from_numpy(times).float()
-    # event_data_torch = torch.from_numpy(event_data).long()
+def get_events_based_data(samples, event_data_torch , fs=200, max_batch_size=512):
+    if samples.shape[2] < 5*fs:
+        print(" file less then 5 seconds")
+        return None, None
+    if event_data_torch.shape[1]>max_batch_size:
+        print("!!!event_data_torch.shape[0]>max_batch_size!!!")
+        len = max_batch_size
+    else:
+        len = event_data_torch.shape[1]
 
-    # Параметры
-    fs = 10.0
-    num_channels, num_points = signals_torch.shape
-    # num_events = event_data_torch.size(0)
+    events_samples = torch.zeros((len, samples.shape[1], 5*fs), dtype=torch.float)
+    for i in range(len):
+        start = int(((event_data_torch[0,i,1] - 2) * fs).round())
+        end = int(((event_data_torch[0,i,1] + 3) * fs).round())
+        if start<0:
+            start = 0
+            end = int(5 * fs)
+        if end>samples.shape[2]:
+            end = samples.shape[2]
+            start = end - int(5 * fs)
+        events_samples[i] = samples[0,:,start:end]
 
-    # Вычисление индексов для срезов
-    feature_index_start = event_data_torch[:, 1].sub_(2 * fs).mul_(-1).add_(num_points)
-    feature_index_end = event_data_torch[:, 2].add_(2 * fs).mul_(-1).add_(num_points)
+    labels = event_data_torch[0,:len, 3].to(dtype=int) - 1
 
-    # # Создание пустого тензора для результатов
-    # features = torch.empty(num_events, num_channels, int(fs) * 5)
-    #
-    # # Заполнение тензоров
-    # for i in range(num_events):
-    #     features[i] = signals_torch[:, feature_index_start[i]:feature_index_end[i]]
-
-    # Индексы событий
-    feature_indexes = torch.stack([feature_index_start, feature_index_end], dim=-1)
-
-    # Метки и номера каналов
-    # offending_channel = event_data_torch[:, 0].unsqueeze(dim=1)
-    labels = event_data_torch[:, 3].unsqueeze(dim=1)
-
-    return feature_indexes, labels
+    return events_samples, labels
 
 def train_class_batch(model, samples, target, criterion, ch_names, max_batch_size):
-    old_fs = 200  # in samples
-    new_fs = 10   # in outputs
+    fs = 200
+    events_samples, targets = get_events_based_data(samples, target, fs = fs, max_batch_size=max_batch_size)
+    events_samples = rearrange(events_samples, 'B N (A T) -> B N A T', T=200).float().to(samples.device, non_blocking=True)
+    outputs_for_events = model(events_samples, ch_names)
+    loss = criterion(outputs_for_events, targets)
 
-    n_samples = int(samples.shape[2] /old_fs* new_fs)
-    n_batches = int(n_samples / max_batch_size + 1)
-    outputs = torch.zeros((n_samples, 6)).to(samples.device, non_blocking=True)
-    for i in range(n_batches):
-        start_pos = int(i*max_batch_size/new_fs*old_fs)
-        end_pos = int((i+1)*max_batch_size/new_fs*old_fs)
-        smple_5_sec = resample_tensor(samples[0,:,start_pos:end_pos], new_freq=10)
-        # smple_5_sec = resample_tensor(samples[i*max_batch_size:(i+1)*max_batch_size], new_freq=10)
-        smple_5_sec = rearrange(smple_5_sec, 'B N (A T) -> B N A T', T=200).float().to(samples.device, non_blocking=True)
-        outputs[i*max_batch_size:(i+1)*max_batch_size] = model(smple_5_sec, ch_names)
-    outputs_indexes_of_events, targets = get_events_based_data(outputs, target)
-    loss = criterion(outputs[outputs_indexes_of_events], targets)
+    # old_fs = 200  # in samples
+    # new_fs = 1   # in outputs
 
-    # ref = (target < 3)
-    # hyp = (outputs.argmax(1) < 3)
-    # add_loss_for_f1_sz_estimation=1 - f1_sz_estimation(hyp,ref)
-    add_loss_for_f1_sz_estimation = 0
+    n_samples = int(samples.shape[2])
+    if n_samples > max_batch_size * fs:
+        start_pos = torch.randint(n_samples-max_batch_size * fs,(1,)).numpy()[0]
+        end_pos = start_pos + max_batch_size * fs
+    else:
+        start_pos = 0
+        end_pos = n_samples
+
+    smple_5_sec = resample_tensor(samples[0, :, start_pos:end_pos], new_freq=1)
+    smple_5_sec = rearrange(smple_5_sec, 'B N (A T) -> B N A T', T=200).float().to(samples.device, non_blocking=True)
+    outputs = model(smple_5_sec, ch_names)
+    ref = labram_events_to_sz_events(target[0], start_pos/fs, end_pos/fs)
+    hyp = (outputs.argmax(1) < 3)
+    # hyp[10] = True
+
+    f1, sens =  f1_sz_estimation(hyp,ref, start_pos/fs, end_pos/fs, fs=1)
+    if np.isnan(f1) and np.isnan(sens):
+        add_loss_for_f1_sz_estimation = 0  # no penalty in case of no events
+    elif np.isnan(f1):
+        add_loss_for_f1_sz_estimation = 1    # penalty - events no detected
+    else:
+        add_loss_for_f1_sz_estimation = 1 - f1
+    # add_loss_for_f1_sz_estimation = 0
+    # loss = 0
     alpha = 1
-    return loss + alpha * add_loss_for_f1_sz_estimation, outputs
+    return loss + alpha * add_loss_for_f1_sz_estimation, 0, 0
+   # return loss + alpha * add_loss_for_f1_sz_estimation, outputs_for_events, targets
 
 
 def get_loss_scale_for_deepspeed(model):
@@ -146,7 +156,8 @@ def train_one_epoch_sz_chlng_2025(model: torch.nn.Module, criterion: torch.nn.Mo
     else:
         optimizer.zero_grad()
 
-    for data_iter_step, (samples, targets) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+    for data_iter_step, (samples, fname, targets) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+        print("start file:",fname)   # debug
         step = data_iter_step // update_freq
         if step >= num_training_steps_per_epoch:
             continue
@@ -168,13 +179,13 @@ def train_one_epoch_sz_chlng_2025(model: torch.nn.Module, criterion: torch.nn.Mo
 
         if loss_scaler is None:
             samples = samples.half()
-            loss, output = train_class_batch(
+            loss, output, target_events = train_class_batch(
                 model, samples, targets, criterion, input_chans, max_batch_size)
         else:
             with torch.cuda.amp.autocast():
-                loss, output = train_class_batch(
+                loss, output, target_events = train_class_batch(
                     model, samples, targets, criterion, input_chans, max_batch_size)
-
+        targets = target_events
         loss_value = loss.item()
 
         if not math.isfinite(loss_value):

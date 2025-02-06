@@ -773,7 +773,7 @@ class TUEVLoader(torch.utils.data.Dataset):
         if self.sampling_rate != self.default_rate:
             X = resample(X, 5 * self.sampling_rate, axis=-1)
         Y = int(sample["label"][0] - 1)
-        Y = index
+        # Y = index
         X = torch.FloatTensor(X)
         return X, Y
     

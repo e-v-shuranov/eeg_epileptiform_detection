@@ -76,7 +76,7 @@ class TUEVLoader(torch.utils.data.Dataset):
         # Y = index
         X = torch.FloatTensor(X)
         Y = torch.FloatTensor(Y)
-        return X, Y
+        return X, self.files[index], Y
 
 def prepare_TUEV_dataset(root):
     # set random seed
