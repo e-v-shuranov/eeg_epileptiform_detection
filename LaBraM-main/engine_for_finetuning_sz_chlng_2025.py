@@ -15,9 +15,11 @@ from pyarrow.compute import random
 from timm.utils import ModelEma
 import utils
 from einops import rearrange
-from sz_metrics import f1_sz_estimation, labram_events_to_sz_events
-import numpy as np
 
+# from ML_solution.infer_model import device
+from sz_metrics import f1_sz_estimation, labram_events_to_sz_events, events_from_mask, mask_from_events
+import numpy as np
+import torch.nn.functional as F
 
 def resample_tensor(tensor, new_freq=1):
     # Исходная частота дискретизации
@@ -90,43 +92,133 @@ def get_events_based_data(samples, event_data_torch , fs=200, max_batch_size=512
 
     return events_samples, labels
 
+from torch.nn.functional import one_hot, softmax, log_softmax
+from torch import gather
+
+# def one_hot_encoding(y):
+#     # Используем F.one_hot для создания one-hot encoding
+#     y_onehot = one_hot(y.long(), num_classes=y.size(0))
+#     return y_onehot.float()
+
+
+def my_loss(y_pred, y_true, criterion):
+    # Получение индексов классов
+    indices = (y_pred.argmax(1) < 3).long().view(-1, 1)
+
+    # Применение softmax для нормализации вероятностей
+    y_pred_softmax = softmax(y_pred, dim=1)
+
+    # Сборка нужных значений из нормализованных вероятностей
+    y_pred_filtered = torch.gather(y_pred_softmax, 1, indices).squeeze(1)
+
+    # Преобразование к типу float
+    y_pred_filtered = y_pred_filtered.to(dtype=torch.float)
+
+    # Логарифмические вероятности для y_pred
+    log_probs = log_softmax(y_pred_filtered.unsqueeze(1), dim=-1)
+
+    # Целевые классы
+    target_indices = y_true.view(-1, 1).float()
+
+    # Потеря
+    loss = criterion(log_probs, target_indices)
+
+    return loss
+
+def my_loss11(y_pred, y_true, criterion):
+    """ for debug, to use crossentrapy instead of MSELoss"""
+    indices = (y_pred.argmax(1) < 3).long().view(-1, 1)
+    y_pred_softmax = softmax(y_pred, dim=1)
+    y_pred_filtered = gather(y_pred_softmax, 1, indices).squeeze(1)
+    y_pred_filtered = y_pred_filtered.to(dtype=torch.float)
+
+    log_probs = log_softmax(y_pred_filtered.unsqueeze(1), dim=-1)
+    target_indices = torch.argmax(y_true, dim=1).unsqueeze(1)
+
+    # y_true_onehot = one_hot_encoding(y_true)
+    # y_pred_onehot = one_hot_encoding(y_pred_filtered)
+
+    # logits = torch.log(y_pred_onehot + 1e-10)
+
+    return criterion(log_probs, target_indices)
+
+
 def train_class_batch(model, samples, target, criterion, ch_names, max_batch_size):
+    """
+    Основная функция обучения на батче.
+    Для обеспечения дифференцируемости вместо дискретных операций (например, argmax) используются softmax и мягкие аппроксимации.
+    """
+    fs = 200
+    n_samples = samples.shape[-1]
+    if n_samples > max_batch_size * fs:
+        start_pos = torch.randint(n_samples - max_batch_size * fs, (1,), device=samples.device)
+        end_pos = start_pos + max_batch_size * fs
+    else:
+        start_pos = torch.tensor(0, device=samples.device)
+        end_pos = torch.tensor(n_samples, device=samples.device)
+    smple_5_sec = resample_tensor(samples[0, :, start_pos:end_pos], new_freq=1)
+    smple_5_sec = rearrange(smple_5_sec, 'B N (A T) -> B N A T', T=200).float().to(samples.device, non_blocking=True)
+    ref = labram_events_to_sz_events(target[0], start_pos / fs, end_pos / fs).to(samples.device)
+    outputs = model(smple_5_sec, ch_names)
+    prob = F.softmax(outputs, dim=1)
+    # Вместо дискретного argmax используем среднее по вероятностям для формирования soft-выхода
+    hyp = 1 - prob[:, :3].mean(dim=1)
+    hyp_event = events_from_mask(hyp, fs)
+    f1, sens = f1_sz_estimation(hyp, ref, start_pos / fs, end_pos / fs, fs=1)
+    add_loss_for_f1_sz_estimation = torch.where(
+        torch.isnan(f1),
+        torch.tensor(1.0, device=samples.device),
+        1 - f1
+    )
+    loss = add_loss_for_f1_sz_estimation.to(samples.device)
+    ref_mask = mask_from_events(ref, smple_5_sec.shape[0], fs)
+    return loss, outputs, ref_mask
+
+
+def train_class_batch1(model, samples, target, criterion, ch_names, max_batch_size):
     fs = 200
     events_samples, targets = get_events_based_data(samples, target, fs = fs, max_batch_size=max_batch_size)
     events_samples = rearrange(events_samples, 'B N (A T) -> B N A T', T=200).float().to(samples.device, non_blocking=True)
     outputs_for_events = model(events_samples, ch_names)
-    loss = criterion(outputs_for_events, targets)
+    # loss = criterion(outputs_for_events, targets)
 
     # old_fs = 200  # in samples
     # new_fs = 1   # in outputs
 
-    n_samples = int(samples.shape[2])
+    n_samples = samples.shape[-1]
     if n_samples > max_batch_size * fs:
-        start_pos = torch.randint(n_samples-max_batch_size * fs,(1,)).numpy()[0]
+        start_pos = torch.randint(n_samples - max_batch_size * fs, (1,)).to(samples.device)
         end_pos = start_pos + max_batch_size * fs
     else:
-        start_pos = 0
-        end_pos = n_samples
+        start_pos = torch.tensor(0).to(samples.device)
+        end_pos = torch.tensor(n_samples).to(samples.device)
 
     smple_5_sec = resample_tensor(samples[0, :, start_pos:end_pos], new_freq=1)
     smple_5_sec = rearrange(smple_5_sec, 'B N (A T) -> B N A T', T=200).float().to(samples.device, non_blocking=True)
+    ref = labram_events_to_sz_events(target[0], start_pos/fs, end_pos/fs).to(samples.device)
     outputs = model(smple_5_sec, ch_names)
-    ref = labram_events_to_sz_events(target[0], start_pos/fs, end_pos/fs)
     hyp = (outputs.argmax(1) < 3)
-    # hyp[10] = True
+    hyp_event = events_from_mask(hyp, fs)
+    f1, sens = f1_sz_estimation(hyp_event, ref, start_pos / fs, end_pos / fs, fs=1)
 
-    f1, sens =  f1_sz_estimation(hyp,ref, start_pos/fs, end_pos/fs, fs=1)
-    if np.isnan(f1) and np.isnan(sens):
-        add_loss_for_f1_sz_estimation = 0  # no penalty in case of no events
-    elif np.isnan(f1):
-        add_loss_for_f1_sz_estimation = 1    # penalty - events no detected
-    else:
-        add_loss_for_f1_sz_estimation = 1 - f1
-    # add_loss_for_f1_sz_estimation = 0
-    # loss = 0
+    add_loss_for_f1_sz_estimation = torch.where(
+        torch.isnan(f1), torch.tensor(1.0, device=samples.device),  # Штраф за отсутствие детекции
+        1 - f1  # Основное значение ошибки
+    )
+    loss = add_loss_for_f1_sz_estimation.to(samples.device)
+
+    ref_mask = mask_from_events(ref, smple_5_sec.shape[0], fs)
+    # hyp_mask = mask_from_events(hyp_event, smple_5_sec.shape[0], fs)
+    # from torch.nn import MSELoss, CrossEntropyLoss
+    # cr1 = MSELoss()
+    # loss = my_loss(outputs, ref, cr1)
+    # # return torch.norm(outputs_for_events[:,0] - targets), outputs_for_events, targets
+    # return loss, (outputs_for_events.argmax(1) < 3)[:2].to(dtype=torch.float), targets[:2]
+
     alpha = 1
-    return loss + alpha * add_loss_for_f1_sz_estimation, 0, 0
-   # return loss + alpha * add_loss_for_f1_sz_estimation, outputs_for_events, targets
+
+    return loss, outputs, ref_mask
+    # return loss + alpha * add_loss_for_f1_sz_estimation, outputs_for_events, targets
 
 
 def get_loss_scale_for_deepspeed(model):
