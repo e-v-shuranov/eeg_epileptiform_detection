@@ -238,6 +238,13 @@ def convert_signals_sz_chalenge_2025_montage(signals, Rawdata):
     return new_signals
 
 def readEDF(fileName):
+    RecFile = fileName[0:-3] + "rec"
+    eventData = np.genfromtxt(RecFile, delimiter=",")
+    is_sz_in_file = False
+    if not ((1 in eventData[:,3]) or (2 in eventData[:,3]) or (3 in eventData[:,3])):
+        print(set(eventData[:,3]), "  in file: ", fileName,"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        return [None, None, None, None]
+
     Rawdata = mne.io.read_raw_edf(fileName, preload=True)
     if drop_channels is not None:
         useless_chs = []
@@ -256,8 +263,7 @@ def readEDF(fileName):
 
     _, times = Rawdata[:]
     signals = Rawdata.get_data(units='uV')
-    RecFile = fileName[0:-3] + "rec"
-    eventData = np.genfromtxt(RecFile, delimiter=",")
+
     Rawdata.close()
     return [signals, times, eventData, Rawdata]
 
@@ -267,11 +273,15 @@ def load_up_objects(BaseDir, Features, OffendingChannels, Labels, OutDir, banana
         print("Found directory: %s" % dirName)
         for fname in fileList:
             if fname[-4:] == ".edf":
-                print("\t%s" % fname)
+                # print("\t%s" % fname)
                 try:
+                    # testname = "/media/public/Datasets/TUEV/tuev/edf/eval/001/pled_001_a_.edf"
+                    # [signals, times, event, Rawdata] = readEDF(testname)
                     [signals, times, event, Rawdata] = readEDF(
                         dirName + "/" + fname
                     )  # event is the .rec file in the form of an array
+                    if event is None:
+                        continue
                     if banana_half_montage:
                         signals = convert_signals_half_banana(signals, Rawdata)
                     elif sz_chalenge_2025_montage:
@@ -310,7 +320,7 @@ def save_pickle(object, filename):
 TUEV dataset is downloaded from https://isip.piconepress.com/projects/tuh_eeg/html/downloads.shtml
 """
 banana_half_montage = False
-sz_chalenge_2025_montage = False
+sz_chalenge_2025_montage = True
 is_random_val = False
 
 # root = "/share/TUEV/"
@@ -321,8 +331,8 @@ if banana_half_montage:
     train_out_dir = os.path.join(root, "processed_train_banana_half")
     eval_out_dir = os.path.join(root, "processed_eval_banana_half")
 elif sz_chalenge_2025_montage:
-    train_out_dir = os.path.join(root, "processed_train_sz_chalenge_2025_montage_norandom")
-    eval_out_dir = os.path.join(root, "processed_eval_sz_chalenge_2025_montage_norandom")
+    train_out_dir = os.path.join(root, "processed_train_sz_chalenge_2025_full_file_sz_only")
+    eval_out_dir = os.path.join(root, "processed_eval_sz_chalenge_2025_full_file_sz_only")
 else:
     train_out_dir = os.path.join(root, "pr_train_qqq")
     eval_out_dir = os.path.join(root, "pr_eval_qqq")
@@ -363,8 +373,8 @@ if banana_half_montage:
     train_files = os.listdir(os.path.join(root, "processed_train_banana_half"))
     test_files = os.listdir(os.path.join(root, "processed_eval_banana_half"))
 elif sz_chalenge_2025_montage:
-    train_files = os.listdir(os.path.join(root, "processed_train_sz_chalenge_2025_montage_norandom"))
-    test_files = os.listdir(os.path.join(root, "processed_eval_sz_chalenge_2025_montage_norandom"))
+    train_files = os.listdir(os.path.join(root, "processed_train_sz_chalenge_2025_full_file_sz_only"))
+    test_files = os.listdir(os.path.join(root, "processed_eval_sz_chalenge_2025_full_file_sz_only"))
 else:
     train_files = os.listdir(os.path.join(root, "pr_train_qqq"))
     test_files = os.listdir(os.path.join(root, "pr_eval_qqq"))
@@ -382,9 +392,10 @@ if is_random_val:
     train_files = [f for f in train_files if f.split("_")[0] in train_sub]
 else:
     num_of_val = int(len(train_sub)*0.2)
-    train_files = train_files[num_of_val:]
-    val_files = train_files[:num_of_val]
-
+    val_sub = train_sub[:num_of_val]
+    train_sub = list(set(train_sub) - set(val_sub))
+    val_files = [f for f in train_files if f.split("_")[0] in val_sub]
+    train_files = [f for f in train_files if f.split("_")[0] in train_sub]
 
 if banana_half_montage:
     train_path = os.path.join(root, 'processed_banana_half', 'processed_train_banana')
@@ -403,9 +414,9 @@ if banana_half_montage:
     for file in test_files:
         os.system(f"cp {os.path.join(root, 'processed_eval_banana_half', file)} {test_path}")
 elif sz_chalenge_2025_montage:
-    train_path = os.path.join(root, 'processed_sz_chalenge_2025_montage_norandom', 'train')
-    eval_path = os.path.join(root, 'processed_sz_chalenge_2025_montage_norandom', 'eval')
-    test_path = os.path.join(root, 'processed_sz_chalenge_2025_montage_norandom', 'test')
+    train_path = os.path.join(root, 'processed_sz_chalenge_2025_full_file_sz_only', 'train')
+    eval_path = os.path.join(root, 'processed_sz_chalenge_2025_full_file_sz_only', 'eval')
+    test_path = os.path.join(root, 'processed_sz_chalenge_2025_full_file_sz_only', 'test')
     if not os.path.exists(train_path):
         os.makedirs(train_path)
     if not os.path.exists(eval_path):
@@ -413,11 +424,11 @@ elif sz_chalenge_2025_montage:
     if not os.path.exists(test_path):
         os.makedirs(test_path)
     for file in train_files:
-        os.system(f"cp {os.path.join(root, 'processed_train_sz_chalenge_2025_montage_norandom', file)} {train_path}")
+        os.system(f"cp {os.path.join(root, 'processed_train_sz_chalenge_2025_full_file_sz_only', file)} {train_path}")
     for file in val_files:
-        os.system(f"cp {os.path.join(root, 'processed_train_sz_chalenge_2025_montage_norandom', file)} {eval_path}")
+        os.system(f"cp {os.path.join(root, 'processed_train_sz_chalenge_2025_full_file_sz_only', file)} {eval_path}")
     for file in test_files:
-        os.system(f"cp {os.path.join(root, 'processed_eval_sz_chalenge_2025_montage_norandom', file)} {test_path}")
+        os.system(f"cp {os.path.join(root, 'processed_eval_sz_chalenge_2025_full_file_sz_only', file)} {test_path}")
 else:
     train_path = os.path.join(root, 'pr_qqq', 'train')
     eval_path = os.path.join(root, 'pr_qqq', 'eval')

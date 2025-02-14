@@ -26,16 +26,18 @@ from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
 from timm.utils import ModelEma
 from optim_factory import create_optimizer, get_parameter_groups, LayerDecayValueAssigner
 
+from run_class_finetuning import *
 # from engine_for_finetuning import train_one_epoch, evaluate
-from engine_for_finetuning_sz_chlng_2025 import train_one_epoch_sz_chlng_2025, evaluate
+from engine_for_finetuning_sz_chlng_2025 import train_one_epoch_sz_chlng_2025, evaluate, evaluate_f1_sz_chalenge2025
 
 from utils import NativeScalerWithGradNormCount as NativeScaler
+from utils import prepare_TUEV_dataset
 import utils
 from scipy import interpolate
 import modeling_finetune
 
 from fusion_model_train import Tfusion_clf
-from run_class_finetuning import *
+
 import re
 
 def tryint(s):
@@ -56,7 +58,51 @@ def sort_nicely(l):
     l.sort(key=alphanum_key)
 
 
-class TUEVLoader(torch.utils.data.Dataset):
+# class TUEVLoader(torch.utils.data.Dataset):
+#     def __init__(self, root, files, sampling_rate=200):
+#         self.root = root
+#         sort_nicely(files)
+#         self.files = files
+#         self.default_rate = 200
+#         self.sampling_rate = sampling_rate
+#
+#     def __len__(self):
+#         return len(self.files)
+#
+#     def __getitem__(self, index):
+#         sample = pickle.load(open(os.path.join(self.root, self.files[index]), "rb"))
+#         X = sample["signal"]
+#         if self.sampling_rate != self.default_rate:
+#             X = resample(X, 5 * self.sampling_rate, axis=-1)
+#         Y = int(sample["label"][0] - 1)
+#         # Y = index
+#         X = torch.FloatTensor(X)
+#         return X, Y
+
+
+# def prepare_TUEV_dataset(root):
+#     # set random seed
+#     seed = 4523
+#     np.random.seed(seed)
+#
+#     train_path = os.path.join(root, "train")
+#     eval_path = os.path.join(root, "eval")
+#     test_path = os.path.join(root, "test")
+#
+#     train_files = os.listdir(train_path)
+#     val_files = os.listdir(eval_path)
+#     test_files = os.listdir(test_path)
+#
+#     # prepare training and test data loader
+#     train_dataset = TUEVLoader(train_path, train_files)
+#     test_dataset = TUEVLoader(test_path, test_files)
+#     val_dataset = TUEVLoader(eval_path, val_files)
+#
+#     print(len(train_files), len(val_files), len(test_files))
+#     return train_dataset, test_dataset, val_dataset
+
+
+class TUEVLoader_sz_chalenge_2025_full_files(torch.utils.data.Dataset):
     def __init__(self, root, files, sampling_rate=200):
         self.root = root
         sort_nicely(files)
@@ -69,6 +115,8 @@ class TUEVLoader(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         sample = pickle.load(open(os.path.join(self.root, self.files[index]), "rb"))
+        # sample = pickle.load(open(os.path.join(self.root, "/media/public/Datasets/epilepsybenchmarks_chellenge/BIDS_Siena_to_labram_pkl/all/sub-12_ses-01_task-szMonitoring_run-02_events.pkl"), "rb"))
+
         X = sample["signal"]
         if self.sampling_rate != self.default_rate:
             X = resample(X, 5 * self.sampling_rate, axis=-1)
@@ -78,7 +126,7 @@ class TUEVLoader(torch.utils.data.Dataset):
         Y = torch.FloatTensor(Y)
         return X, self.files[index], Y
 
-def prepare_TUEV_dataset(root):
+def prepare_TUEV_dataset_sz_chalenge_2025_full_files(root):
     # set random seed
     seed = 4523
     np.random.seed(seed)
@@ -92,13 +140,34 @@ def prepare_TUEV_dataset(root):
     test_files = os.listdir(test_path)
 
     # prepare training and test data loader
-    train_dataset = TUEVLoader(train_path, train_files)
-    test_dataset = TUEVLoader(test_path, test_files)
-    val_dataset = TUEVLoader(eval_path, val_files)
+    train_dataset = TUEVLoader_sz_chalenge_2025_full_files(train_path, train_files)
+    test_dataset = TUEVLoader_sz_chalenge_2025_full_files(test_path, test_files)
+    val_dataset = TUEVLoader_sz_chalenge_2025_full_files(eval_path, val_files)
 
     print(len(train_files), len(val_files), len(test_files))
     return train_dataset, test_dataset, val_dataset
 
+
+def prepare_Siena_dataset_sz_chalenge_2025_full_files(root):
+    # set random seed
+    seed = 4523
+    np.random.seed(seed)
+
+    train_path = os.path.join(root, "train")
+    eval_path = os.path.join(root, "eval")
+    test_path = os.path.join(root, "eval")   # just copy to fit other datasets structure
+
+    train_files = os.listdir(train_path)
+    val_files = os.listdir(eval_path)
+    test_files = os.listdir(test_path)
+
+    # prepare training and test data loader
+    train_dataset = TUEVLoader_sz_chalenge_2025_full_files(train_path, train_files)
+    test_dataset = TUEVLoader_sz_chalenge_2025_full_files(test_path, test_files)
+    val_dataset = TUEVLoader_sz_chalenge_2025_full_files(eval_path, val_files)
+
+    print(len(train_files), len(val_files), len(test_files))
+    return train_dataset, test_dataset, val_dataset
 
 def get_dataset(args):
     if args.dataset == 'TUAB':
@@ -110,8 +179,8 @@ def get_dataset(args):
         ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
         args.nb_classes = 1
         metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
-    elif args.dataset == 'TUEV':
-        train_dataset, test_dataset, val_dataset = prepare_TUEV_dataset("/media/public/Datasets/TUEV/tuev/edf/processed_sz_chalenge_2025_montage_full_data_norandom")
+    elif True:  # args.dataset == 'TUEV':   # we have only TUEV for finetune  labram classes
+        train_dataset, test_dataset, val_dataset = prepare_TUEV_dataset("/media/public/Datasets/TUEV/tuev/edf/processed_sz_chalenge_2025_montage")
         ch_names_after_convert_sz_chalenge_2025_montage = ['FP1-Avg', 'F3-Avg', 'C3-Avg', 'P3-Avg',
                                                            'O1-Avg', 'F7-Avg', 'T3-Avg', 'T5-Avg',
                                                            'FZ-Avg', 'CZ-Avg', 'PZ-Avg', 'FP2-Avg',
@@ -125,6 +194,53 @@ def get_dataset(args):
                                'F8', 'T4', 'T6']
         args.nb_classes = 6
         metrics = ["accuracy", "balanced_accuracy", "cohen_kappa", "f1_weighted"]
+    return train_dataset, test_dataset, val_dataset, standard_1020_subset, metrics
+
+
+def get_dataset_sz_chalenge_2025_full_files(args):
+    if args.dataset == 'TUAB':
+        train_dataset, test_dataset, val_dataset = utils.prepare_TUAB_dataset("path/to/TUAB")
+        ch_names = ['EEG FP1', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF',
+                    'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
+                    'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF',
+                    'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
+        ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
+        args.nb_classes = 1
+        metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
+    elif args.dataset == 'TUEV':
+        # train_dataset, test_dataset, val_dataset = prepare_TUEV_dataset_sz_chalenge_2025_full_files("/media/public/Datasets/TUEV/tuev/edf/processed_sz_chalenge_2025_montage_full_data_norandom")   # bad training because a lot of no sz data
+        train_dataset, test_dataset, val_dataset = prepare_TUEV_dataset_sz_chalenge_2025_full_files("/media/public/Datasets/TUEV/tuev/edf/processed_sz_chalenge_2025_full_file_sz_only")
+
+        ch_names_after_convert_sz_chalenge_2025_montage = ['FP1-Avg', 'F3-Avg', 'C3-Avg', 'P3-Avg',
+                                                           'O1-Avg', 'F7-Avg', 'T3-Avg', 'T5-Avg',
+                                                           'FZ-Avg', 'CZ-Avg', 'PZ-Avg', 'FP2-Avg',
+                                                           'F4-Avg', 'C4-Avg', 'P4-Avg', 'O2-Avg',
+                                                           'F8-Avg', 'T4-Avg', 'T6-Avg']
+        # Let's replace ch_names_after_convert_sz_chalenge_2025_montage to standard_1020_subset names and fintune for "-Avg"
+        standard_1020_subset = ['FP1', 'F3', 'C3', 'P3',
+                               'O1', 'F7', 'T3', 'T5',
+                               'FZ', 'CZ', 'PZ', 'FP2',
+                               'F4', 'C4', 'P4', 'O2',
+                               'F8', 'T4', 'T6']
+        args.nb_classes = 6
+        metrics = ["accuracy", "balanced_accuracy", "cohen_kappa", "f1_weighted"]
+        return train_dataset, test_dataset, val_dataset, standard_1020_subset, metrics
+    elif args.dataset == 'Siena':
+        train_dataset, test_dataset, val_dataset = prepare_Siena_dataset_sz_chalenge_2025_full_files("/media/public/Datasets/epilepsybenchmarks_chellenge/BIDS_Siena_to_labram_pkl/test1")
+        ch_names_after_convert_sz_chalenge_2025_montage = ['FP1-Avg', 'F3-Avg', 'C3-Avg', 'P3-Avg',
+                                                           'O1-Avg', 'F7-Avg', 'T3-Avg', 'T5-Avg',
+                                                           'FZ-Avg', 'CZ-Avg', 'PZ-Avg', 'FP2-Avg',
+                                                           'F4-Avg', 'C4-Avg', 'P4-Avg', 'O2-Avg',
+                                                           'F8-Avg', 'T4-Avg', 'T6-Avg']
+        # Let's replace ch_names_after_convert_sz_chalenge_2025_montage to standard_1020_subset names and fintune for "-Avg"
+        standard_1020_subset = ['FP1', 'F3', 'C3', 'P3',
+                               'O1', 'F7', 'T3', 'T5',
+                               'FZ', 'CZ', 'PZ', 'FP2',
+                               'F4', 'C4', 'P4', 'O2',
+                               'F8', 'T4', 'T6']
+        args.nb_classes = 6  # use same logic like TUEV, but labels only 2 and 3 exists
+        metrics = ["accuracy", "balanced_accuracy", "cohen_kappa", "f1_weighted"]
+
     return train_dataset, test_dataset, val_dataset, standard_1020_subset, metrics
 
 
@@ -150,7 +266,9 @@ def main(args, ds_init):
     # ch_names: list of strings, channel names of the dataset. It should be in capital letters.
     # metrics: list of strings, the metrics you want to use. We utilize PyHealth to implement it.
     dataset_train, dataset_test, dataset_val, ch_names, metrics = get_dataset(args)
+    dataset_train_sz_chalenge_2025_full_files, dataset_test_sz_chalenge_2025_full_files, dataset_val_sz_chalenge_2025_full_files, ch_names_sz_chalenge_2025_full_files, metrics_sz_chalenge_2025_full_files = get_dataset_sz_chalenge_2025_full_files(args)
 
+    dataset_test = [dataset_test,dataset_test_sz_chalenge_2025_full_files,dataset_val_sz_chalenge_2025_full_files]
     if args.disable_eval_during_finetuning:
         dataset_val = None
         dataset_test = None
@@ -159,7 +277,7 @@ def main(args, ds_init):
         num_tasks = utils.get_world_size()
         global_rank = utils.get_rank()
         sampler_train = torch.utils.data.DistributedSampler(
-            dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
+            dataset_train_sz_chalenge_2025_full_files, num_replicas=num_tasks, rank=global_rank, shuffle=True
         )
         print("Sampler_train = %s" % str(sampler_train))
         if args.dist_eval:
@@ -179,7 +297,7 @@ def main(args, ds_init):
             sampler_val = torch.utils.data.SequentialSampler(dataset_val)
             sampler_test = torch.utils.data.SequentialSampler(dataset_test)
     else:
-        sampler_train = torch.utils.data.RandomSampler(dataset_train)
+        sampler_train = torch.utils.data.RandomSampler(dataset_train_sz_chalenge_2025_full_files)
         sampler_val = torch.utils.data.SequentialSampler(dataset_val)
 
     if global_rank == 0 and args.log_dir is not None:
@@ -189,7 +307,7 @@ def main(args, ds_init):
         log_writer = None
 
     data_loader_train = torch.utils.data.DataLoader(
-        dataset_train, sampler=sampler_train,
+        dataset_train_sz_chalenge_2025_full_files, sampler=sampler_train,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         pin_memory=args.pin_mem,
@@ -289,11 +407,11 @@ def main(args, ds_init):
     print('number of params:', n_parameters)
 
     total_batch_size = args.batch_size * args.update_freq * utils.get_world_size()
-    num_training_steps_per_epoch = len(dataset_train) // total_batch_size
+    num_training_steps_per_epoch = len(dataset_train_sz_chalenge_2025_full_files) // total_batch_size
     print("LR = %.8f" % args.lr)
     print("Batch size = %d" % total_batch_size)
     print("Update frequent = %d" % args.update_freq)
-    print("Number of training examples = %d" % len(dataset_train))
+    print("Number of training examples = %d" % len(dataset_train_sz_chalenge_2025_full_files))
     print("Number of training training per epoch = %d" % num_training_steps_per_epoch)
 
     num_layers = model_without_ddp.get_num_layers()
@@ -369,10 +487,14 @@ def main(args, ds_init):
         # print(
         #     f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
 
-        test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
+        # test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
+        #                       is_binary=(args.nb_classes == 1))
+        # print(f"======Accuracy: on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%", "ALL tests: ",
+        #       test_stats)
+        test_stats = evaluate_f1_sz_chalenge2025(data_loader_test[1], model, device, header='Test:', ch_names=ch_names, metrics=metrics,
                               is_binary=(args.nb_classes == 1))
-        print(f"======Accuracy: on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%", "ALL tests: ",
-              test_stats)
+
+        print(f"test_stats on the {len(dataset_test[1])} test EEG: ",test_stats)
 
         exit(0)
 
@@ -380,6 +502,7 @@ def main(args, ds_init):
     start_time = time.time()
     max_accuracy = 0.0
     max_accuracy_test = 0.0
+    max_f1_val_accuracy = 0.0
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             data_loader_train.sampler.set_epoch(epoch)
@@ -400,12 +523,14 @@ def main(args, ds_init):
                 loss_scaler=loss_scaler, epoch=epoch, model_ema=model_ema, save_ckpt_freq=args.save_ckpt_freq)
 
         if data_loader_val is not None:
-            val_stats = evaluate(data_loader_val, model, device, header='Val:', ch_names=ch_names, metrics=metrics,
-                                 is_binary=args.nb_classes == 1)
+            val_stats = evaluate(data_loader_val, model, device, header='Val:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1)
             print(f"Accuracy of the network on the {len(dataset_val)} val EEG: {val_stats['accuracy']:.2f}%")
-            test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
-                                  is_binary=args.nb_classes == 1)
-            print(f"Accuracy of the network on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%")
+            test_stats = evaluate(data_loader_test[0], model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1)
+            print(f"labramtest: Accuracy of the network on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%")
+            f1_test_stats = evaluate_f1_sz_chalenge2025(data_loader_test[1], model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1, max_batch_size = args.max_batch_size)
+            print(f"f1_sz_2025_test: f1 of the network on the {len(dataset_test_sz_chalenge_2025_full_files)} test EEG: {f1_test_stats['f1']:.2f}%")
+            f1_val__stats = evaluate_f1_sz_chalenge2025(data_loader_test[2], model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1, max_batch_size = args.max_batch_size)
+            print(f"f1_sz_2025_val: f1 of the network on the {len(dataset_val_sz_chalenge_2025_full_files)} test EEG: {f1_val__stats['f1']:.2f}%")
 
             if max_accuracy < val_stats["accuracy"]:
                 max_accuracy = val_stats["accuracy"]
@@ -415,7 +540,16 @@ def main(args, ds_init):
                         loss_scaler=loss_scaler, epoch="best", model_ema=model_ema)
                 max_accuracy_test = test_stats["accuracy"]
 
+            if max_f1_val_accuracy < f1_val__stats["f1"]:
+                max_f1_val_accuracy = f1_val__stats["f1"]
+                if args.output_dir and args.save_ckpt:
+                    utils.save_model(
+                        args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
+                        loss_scaler=loss_scaler, epoch="best_f1_val_2025", model_ema=model_ema)
+                max_f1_accuracy_test = f1_test_stats["f1"]
+
             print(f'Max accuracy val: {max_accuracy:.2f}%, max accuracy test: {max_accuracy_test:.2f}%')
+            print(f'f1_sz_2025: Max accuracy val: {max_f1_val_accuracy:.2f}%, max accuracy test: {max_f1_accuracy_test:.2f}%')
             if log_writer is not None:
                 for key, value in val_stats.items():
                     if key == 'accuracy':
@@ -448,9 +582,43 @@ def main(args, ds_init):
                     elif key == 'loss':
                         log_writer.update(loss=value, head="test", step=epoch)
 
+                for key, value in f1_val__stats.items():
+                    if key == 'accuracy':
+                        log_writer.update(accuracy=value, head="f1_val", step=epoch)
+                    elif key == 'balanced_accuracy':
+                        log_writer.update(balanced_accuracy=value, head="f1_val", step=epoch)
+                    elif key == 'f1_weighted':
+                        log_writer.update(f1_weighted=value, head="f1_val", step=epoch)
+                    elif key == 'pr_auc':
+                        log_writer.update(pr_auc=value, head="f1_val", step=epoch)
+                    elif key == 'roc_auc':
+                        log_writer.update(roc_auc=value, head="f1_val", step=epoch)
+                    elif key == 'cohen_kappa':
+                        log_writer.update(cohen_kappa=value, head="f1_val", step=epoch)
+                    elif key == 'loss':
+                        log_writer.update(loss=value, head="f1_val", step=epoch)
+
+                    for key, value in f1_test_stats.items():
+                        if key == 'accuracy':
+                            log_writer.update(accuracy=value, head="f1_test", step=epoch)
+                        elif key == 'balanced_accuracy':
+                            log_writer.update(balanced_accuracy=value, head="f1_test", step=epoch)
+                        elif key == 'f1_weighted':
+                            log_writer.update(f1_weighted=value, head="f1_test", step=epoch)
+                        elif key == 'pr_auc':
+                            log_writer.update(pr_auc=value, head="f1_test", step=epoch)
+                        elif key == 'roc_auc':
+                            log_writer.update(roc_auc=value, head="f1_test", step=epoch)
+                        elif key == 'cohen_kappa':
+                            log_writer.update(cohen_kappa=value, head="f1_test", step=epoch)
+                        elif key == 'loss':
+                            log_writer.update(loss=value, head="f1_test", step=epoch)
+
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          **{f'val_{k}': v for k, v in val_stats.items()},
                          **{f'test_{k}': v for k, v in test_stats.items()},
+                         **{f'f1_val_{k}': v for k, v in f1_val__stats.items()},
+                         **{f'f1_test_{k}': v for k, v in f1_test_stats.items()},
                          'epoch': epoch,
                          'n_parameters': n_parameters}
         else:

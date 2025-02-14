@@ -578,7 +578,7 @@ def save_model(args, epoch, model, model_without_ddp, optimizer, loss_scaler, mo
 
     if not getattr(args, 'enable_deepspeed', False):
         checkpoint_paths = [output_dir / 'checkpoint.pth']
-        if epoch == 'best':
+        if epoch == 'best' or epoch == 'best_f1_val_2025':
             checkpoint_paths = [output_dir / ('checkpoint-%s.pth' % epoch_name),]
         elif (epoch + 1) % save_ckpt_freq == 0:
             checkpoint_paths.append(output_dir / ('checkpoint-%s.pth' % epoch_name))
@@ -793,8 +793,8 @@ def prepare_TUEV_dataset(root):
 
     # prepare training and test data loader
     train_dataset = TUEVLoader(train_path, train_files)
-    test_dataset = TUEVLoader(test_path, test_files)
-    val_dataset = TUEVLoader(eval_path, val_files)
+    test_dataset = TUEVLoader(test_path, test_files[:2000])
+    val_dataset = TUEVLoader(eval_path, val_files[:2000])
 
     print(len(train_files), len(val_files), len(test_files))
     return train_dataset, test_dataset, val_dataset

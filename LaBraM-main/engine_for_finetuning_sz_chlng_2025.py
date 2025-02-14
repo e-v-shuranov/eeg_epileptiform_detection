@@ -11,13 +11,20 @@ import math
 import sys
 from typing import Iterable, Optional
 import torch
-from pyarrow.compute import random
+# from pyarrow.compute import random
+import random
 from timm.utils import ModelEma
 import utils
 from einops import rearrange
+from collections import defaultdict
 
 # from ML_solution.infer_model import device
 from sz_metrics import f1_sz_estimation, labram_events_to_sz_events, events_from_mask, mask_from_events
+from sz_metrics_old import f1_sz_estimation as f1_sz_estimation_old
+from sz_metrics_old import labram_events_to_sz_events as labram_events_to_sz_events_old
+from sz_metrics_old import events_from_mask as events_from_mask_old
+from sz_metrics_old import mask_from_events as mask_from_events_old
+
 import numpy as np
 import torch.nn.functional as F
 
@@ -100,79 +107,102 @@ from torch import gather
 #     y_onehot = one_hot(y.long(), num_classes=y.size(0))
 #     return y_onehot.float()
 
+#
+# def my_loss(y_pred, y_true, criterion):
+#     # Получение индексов классов
+#     indices = (y_pred.argmax(1) < 3).long().view(-1, 1)
+#
+#     # Применение softmax для нормализации вероятностей
+#     y_pred_softmax = softmax(y_pred, dim=1)
+#
+#     # Сборка нужных значений из нормализованных вероятностей
+#     y_pred_filtered = torch.gather(y_pred_softmax, 1, indices).squeeze(1)
+#
+#     # Преобразование к типу float
+#     y_pred_filtered = y_pred_filtered.to(dtype=torch.float)
+#
+#     # Логарифмические вероятности для y_pred
+#     log_probs = log_softmax(y_pred_filtered.unsqueeze(1), dim=-1)
+#
+#     # Целевые классы
+#     target_indices = y_true.view(-1, 1).float()
+#
+#     # Потеря
+#     loss = criterion(log_probs, target_indices)
+#
+#     return loss
 
-def my_loss(y_pred, y_true, criterion):
-    # Получение индексов классов
-    indices = (y_pred.argmax(1) < 3).long().view(-1, 1)
+# def my_loss11(y_pred, y_true, criterion):
+#     """ for debug, to use crossentrapy instead of MSELoss"""
+#     indices = (y_pred.argmax(1) < 3).long().view(-1, 1)
+#     y_pred_softmax = softmax(y_pred, dim=1)
+#     y_pred_filtered = gather(y_pred_softmax, 1, indices).squeeze(1)
+#     y_pred_filtered = y_pred_filtered.to(dtype=torch.float)
+#
+#     log_probs = log_softmax(y_pred_filtered.unsqueeze(1), dim=-1)
+#     target_indices = torch.argmax(y_true, dim=1).unsqueeze(1)
+#
+#     # y_true_onehot = one_hot_encoding(y_true)
+#     # y_pred_onehot = one_hot_encoding(y_pred_filtered)
+#
+#     # logits = torch.log(y_pred_onehot + 1e-10)
+#
+#     return criterion(log_probs, target_indices)
 
-    # Применение softmax для нормализации вероятностей
-    y_pred_softmax = softmax(y_pred, dim=1)
+def get_randomized_sample_range(sz_events, max_batch_size, signal_length, fs):
+    # Выбираем случайное событие
+    selected_event_index = random.choice(sz_events)
 
-    # Сборка нужных значений из нормализованных вероятностей
-    y_pred_filtered = torch.gather(y_pred_softmax, 1, indices).squeeze(1)
+    # Определяем диапазон выборки вокруг выбранного события
+    center_position = (selected_event_index[0] + selected_event_index[1]) // 2
+    half_window_size = max_batch_size * fs // 2
 
-    # Преобразование к типу float
-    y_pred_filtered = y_pred_filtered.to(dtype=torch.float)
+    # Случайная вариация от центра события
+    variation = random.randint(-half_window_size // 2, half_window_size // 2)
+    start_pos = max(center_position + variation - half_window_size, 0)
+    end_pos = min(start_pos + max_batch_size * fs, signal_length)
 
-    # Логарифмические вероятности для y_pred
-    log_probs = log_softmax(y_pred_filtered.unsqueeze(1), dim=-1)
+    # Обновление позиций, если они выходят за границы
+    if end_pos - start_pos < max_batch_size * fs:
+        diff = max_batch_size * fs - (end_pos - start_pos)
+        start_pos = max(start_pos - diff // 2, 0)
+        end_pos = min(end_pos + diff // 2, signal_length)
 
-    # Целевые классы
-    target_indices = y_true.view(-1, 1).float()
-
-    # Потеря
-    loss = criterion(log_probs, target_indices)
-
-    return loss
-
-def my_loss11(y_pred, y_true, criterion):
-    """ for debug, to use crossentrapy instead of MSELoss"""
-    indices = (y_pred.argmax(1) < 3).long().view(-1, 1)
-    y_pred_softmax = softmax(y_pred, dim=1)
-    y_pred_filtered = gather(y_pred_softmax, 1, indices).squeeze(1)
-    y_pred_filtered = y_pred_filtered.to(dtype=torch.float)
-
-    log_probs = log_softmax(y_pred_filtered.unsqueeze(1), dim=-1)
-    target_indices = torch.argmax(y_true, dim=1).unsqueeze(1)
-
-    # y_true_onehot = one_hot_encoding(y_true)
-    # y_pred_onehot = one_hot_encoding(y_pred_filtered)
-
-    # logits = torch.log(y_pred_onehot + 1e-10)
-
-    return criterion(log_probs, target_indices)
+    return start_pos, end_pos
 
 
 def train_class_batch(model, samples, target, criterion, ch_names, max_batch_size):
-    """
-    Основная функция обучения на батче.
-    Для обеспечения дифференцируемости вместо дискретных операций (например, argmax) используются softmax и мягкие аппроксимации.
-    """
     fs = 200
     n_samples = samples.shape[-1]
-    if n_samples > max_batch_size * fs:
-        start_pos = torch.randint(n_samples - max_batch_size * fs, (1,), device=samples.device)
-        end_pos = start_pos + max_batch_size * fs
-    else:
-        start_pos = torch.tensor(0, device=samples.device)
-        end_pos = torch.tensor(n_samples, device=samples.device)
+    sz_events = labram_events_to_sz_events(target[0], 0, n_samples / fs, is_labram_events_in_min=False)
+
+    # Получение списка всех индексов начала событий
+    event_indices = [(int(start.item() * fs), int(end.item() * fs)) for start, end in sz_events]
+
+    # Если нет событий, возвращаемся без потерь
+    if len(event_indices) == 0:
+        return torch.tensor(0.0).to(samples.device), None, None
+
+    start_pos, end_pos = get_randomized_sample_range(event_indices, max_batch_size, n_samples, fs)
+
     smple_5_sec = resample_tensor(samples[0, :, start_pos:end_pos], new_freq=1)
     smple_5_sec = rearrange(smple_5_sec, 'B N (A T) -> B N A T', T=200).float().to(samples.device, non_blocking=True)
     ref = labram_events_to_sz_events(target[0], start_pos / fs, end_pos / fs).to(samples.device)
-    outputs = model(smple_5_sec, ch_names)
-    prob = F.softmax(outputs, dim=1)
-    # Вместо дискретного argmax используем среднее по вероятностям для формирования soft-выхода
-    hyp = 1 - prob[:, :3].mean(dim=1)
-    hyp_event = events_from_mask(hyp, fs)
-    f1, sens = f1_sz_estimation(hyp, ref, start_pos / fs, end_pos / fs, fs=1)
+
+    outputs = model(smple_5_sec, input_chans=ch_names)
+    hyp = (outputs.softmax(dim=1))[:, 0:3].sum(dim=1)
+    f1, sens = f1_sz_estimation(hyp, ref)
+
     add_loss_for_f1_sz_estimation = torch.where(
         torch.isnan(f1),
         torch.tensor(1.0, device=samples.device),
         1 - f1
-    )
-    loss = add_loss_for_f1_sz_estimation.to(samples.device)
+    ).to(samples.device)
+
     ref_mask = mask_from_events(ref, smple_5_sec.shape[0], fs)
-    return loss, outputs, ref_mask
+    return add_loss_for_f1_sz_estimation, outputs, ref_mask
+
+
 
 
 def train_class_batch1(model, samples, target, criterion, ch_names, max_batch_size):
@@ -247,7 +277,7 @@ def train_one_epoch_sz_chlng_2025(model: torch.nn.Module, criterion: torch.nn.Mo
         model.micro_steps = 0
     else:
         optimizer.zero_grad()
-
+    # num_training_steps_per_epoch = 2
     for data_iter_step, (samples, fname, targets) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         print("start file:",fname)   # debug
         step = data_iter_step // update_freq
@@ -277,6 +307,9 @@ def train_one_epoch_sz_chlng_2025(model: torch.nn.Module, criterion: torch.nn.Mo
             with torch.cuda.amp.autocast():
                 loss, output, target_events = train_class_batch(
                     model, samples, targets, criterion, input_chans, max_batch_size)
+        # if loss == None:
+        #     loss, output, target_events =torch.empty(1, 1, device=samples.device), torch.empty(1, device=samples.device), torch.empty(1, device=samples.device)
+        #     # continue
         targets = target_events
         loss_value = loss.item()
 
@@ -370,6 +403,8 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
     pred = []
     true = []
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
+        # if step > 2:
+        #     break
         EEG = batch[0]
         target = batch[-1]
         EEG = EEG.float().to(device, non_blocking=True) / 100
@@ -409,3 +444,192 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
     ret = utils.get_metrics(pred, true, metrics, is_binary, 0.5)
     ret['loss'] = metric_logger.loss.global_avg
     return ret
+
+
+@torch.no_grad()
+def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True,max_batch_size = 100):
+    input_chans = None
+    if ch_names is not None:
+        input_chans = utils.get_input_chans(ch_names)
+    if is_binary:
+        criterion = torch.nn.BCEWithLogitsLoss()
+    else:
+        criterion = torch.nn.CrossEntropyLoss()
+
+    metric_logger = utils.MetricLogger(delimiter="  ")
+    # header = 'Test:'
+
+    # switch to evaluation mode
+    model.eval()
+    f1_all = []
+    sens_all = []
+    f_names_all = []
+    fs = 200
+    for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
+        print(batch[1])
+        EEG = batch[0]
+        target = batch[-1].to(device)
+        EEG = EEG.float().to(device, non_blocking=True) / 100
+
+        start_pos = torch.tensor(0).to(device)
+        end_pos = torch.tensor(batch[0].shape[2]).to(device)
+        smple_5_sec = resample_tensor(EEG[0,:, :], new_freq=1)
+        smple_5_sec = rearrange(smple_5_sec, 'B N (A T) -> B N A T', T=200).float().to(device, non_blocking=True)
+        ref = labram_events_to_sz_events(target[0], start_pos / fs, end_pos / fs).to(device)
+        outputs = model(smple_5_sec, input_chans = input_chans)
+        hyp = (outputs.softmax(dim=1))[:, 0:3].sum(dim=1)
+        f1, sens = f1_sz_estimation(hyp, ref)
+
+        add_loss_for_f1_sz_estimation = torch.where(
+            torch.isnan(f1), torch.tensor(1.0, device=device),  # Штраф за отсутствие детекции
+            1 - f1  # Основное значение ошибки
+        )
+        loss = add_loss_for_f1_sz_estimation.to(device)
+
+
+        results = {}
+        results['f1'] = f1
+        results['sensitivity'] = sens
+        f1_all.append(f1)
+        f_names_all.append(batch[1][0])
+        sens_all.append(sens)
+
+        batch_size = EEG.shape[0]
+        metric_logger.update(loss=loss.item())
+        for key, value in results.items():
+            metric_logger.meters[key].update(value, n=batch_size)
+        # metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
+
+    # gather the stats from all processes
+    metric_logger.synchronize_between_processes()
+    print('* loss {losses.global_avg:.3f}'
+          .format(losses=metric_logger.loss))
+
+    has_incorrect_files = False
+
+    # Словарь для хранения значений F1 и Sens для корректных объектов
+    grouped_f1 = {}
+    grouped_sens = {}
+
+    for name, f1_value, sens_value in zip(f_names_all, f1_all, sens_all):
+        try:
+            object_number = int(name.split('-')[1].split('_')[0])
+            if object_number not in grouped_f1:
+                grouped_f1[object_number] = []
+                grouped_sens[object_number] = []
+
+            grouped_f1[object_number].append(f1_value)
+            grouped_sens[object_number].append(sens_value)
+
+        except (ValueError, IndexError):
+            has_incorrect_files = True
+            break
+
+    if has_incorrect_files:
+        # Если обнаружены некорректные файлы, усредняем по всем файлам
+        overall_average_f1 = sum(f1_all) / len(f1_all)
+        overall_average_sens = sum(sens_all) / len(sens_all)
+    else:
+        # Усредняем значения F1 для каждого объекта
+        average_f1_per_object = {obj_num: sum(values) / len(values) for obj_num, values in grouped_f1.items()}
+        average_sens_per_object = {obj_num: sum(values) / len(values) for obj_num, values in grouped_sens.items()}
+
+        # Усредняем средние значения по всем объектам
+        overall_average_f1 = sum(average_f1_per_object.values()) / len(average_f1_per_object)
+        overall_average_sens = sum(average_sens_per_object.values()) / len(average_sens_per_object)
+
+
+    ret = {}
+    ret['loss'] = metric_logger.loss.global_avg
+    ret['f1'] = float(overall_average_f1.detach().cpu().numpy())
+    ret['sensitivity'] = float(overall_average_sens.detach().cpu().numpy())
+
+    return ret
+
+
+
+@torch.no_grad()
+def evaluate_f1_sz_chalenge2025_with_file_splitting_max_batch_size(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True,max_batch_size = 5000):
+    input_chans = None
+    if ch_names is not None:
+        input_chans = utils.get_input_chans(ch_names)
+    if is_binary:
+        criterion = torch.nn.BCEWithLogitsLoss()
+    else:
+        criterion = torch.nn.CrossEntropyLoss()
+
+    metric_logger = utils.MetricLogger(delimiter="  ")
+    # header = 'Test:'
+
+    # switch to evaluation mode
+    model.eval()
+    f1_all = []
+    sens_all = []
+    f_names_all = []
+    fs = 200
+    for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
+        print(batch[1])
+        EEG = batch[0]
+        target = batch[-1].to(device)
+        EEG = EEG.float().to(device, non_blocking=True) / 100
+
+        batch_size_ = int(batch[0].shape[2]/(max_batch_size*fs))
+        for ii in range(batch_size_):
+            start_pos = torch.tensor(ii*max_batch_size* fs).to(device)
+            end_pos = torch.tensor((ii+1)*max_batch_size* fs).to(device)
+            smple_5_sec = resample_tensor(EEG[0,:, start_pos:end_pos], new_freq=1)
+            smple_5_sec = rearrange(smple_5_sec, 'B N (A T) -> B N A T', T=200).float().to(device, non_blocking=True)
+            ref = labram_events_to_sz_events(target[0], start_pos / fs, end_pos / fs).to(device)
+            outputs = model(smple_5_sec, input_chans=input_chans)
+            hyp = (outputs.softmax(dim=1))[:, 0:3].sum(dim=1)
+            f1, sens = f1_sz_estimation(hyp, ref)
+
+            add_loss_for_f1_sz_estimation = torch.where(
+                torch.isnan(f1), torch.tensor(1.0, device=device),  # Штраф за отсутствие детекции
+                1 - f1  # Основное значение ошибки
+            )
+            loss = add_loss_for_f1_sz_estimation.to(device)
+
+
+            results = {}
+            results['f1'] = f1
+            results['sensitivity'] = sens
+            f1_all.append(f1)
+            f_names_all.append(batch[1][0])
+            sens_all.append(sens)
+
+            batch_size = EEG.shape[0]
+            metric_logger.update(loss=loss.item())
+            for key, value in results.items():
+                metric_logger.meters[key].update(value, n=batch_size)
+            # metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
+
+    # gather the stats from all processes
+    metric_logger.synchronize_between_processes()
+    print('* loss {losses.global_avg:.3f}'
+          .format(losses=metric_logger.loss))
+
+    # Группируем файлы по номеру объекта
+    grouped_f1 = defaultdict(list)
+    grouped_sens = defaultdict(list)
+
+    for name, f1_value, sens_value in zip(f_names_all, f1_all, sens_all):
+        object_number = int(name.split('-')[1].split('_')[0])
+        grouped_f1[object_number].append(f1_value)
+        grouped_sens[object_number].append(sens_value)
+
+    # Усредняем значения F1 для каждого объекта
+    average_f1_per_object = {obj_num: sum(values) / len(values) for obj_num, values in grouped_f1.items()}
+    average_sens_per_object = {obj_num: sum(values) / len(values) for obj_num, values in grouped_sens.items()}
+
+    # Усредняем средние значения по всем объектам
+    overall_average_f1 = sum(average_f1_per_object.values()) / len(average_f1_per_object)
+    overall_average_sens = sum(average_sens_per_object.values()) / len(average_sens_per_object)
+
+    ret = {}
+    ret['loss'] = metric_logger.loss.global_avg
+    ret['f1'] = overall_average_f1
+    ret['sensitivity'] = overall_average_sens
+
+    return ret
+

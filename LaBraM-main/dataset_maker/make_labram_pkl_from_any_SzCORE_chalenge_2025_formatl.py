@@ -1,18 +1,21 @@
 # --------------------------------------------------------
-# Large Brain Model for Learning Generic Representations with Tremendous EEG Data in BCI
-# By Wei-Bang Jiang
-# Based on BIOT code base
-# https://github.com/ycq091044/BIOT
+
 # --------------------------------------------------------
 import mne
 import numpy as np
 import os
 import pickle
-from tqdm import tqdm
 
-"""
-https://github.com/Abhishaike/EEG_Event_Classification
-"""
+from debugpy.launcher import channel
+from tqdm import tqdm
+from pathlib import Path
+from epilepsy2bids.annotations import Annotations
+
+SzCORE_format = ['Fp1-Avg', 'F3-Avg', 'C3-Avg', 'P3-Avg', 'O1-Avg', 'F7-Avg', 'T3-Avg', 'T5-Avg', 'Fz-Avg', 'Cz-Avg', 'Pz-Avg', 'Fp2-Avg', 'F4-Avg', 'C4-Avg', 'P4-Avg', 'O2-Avg', 'F8-Avg', 'T4-Avg', 'T6-Avg']
+
+labram_event_types = ['SPSW', 'PLED' , 'GPED', 'EYEM', 'ARTF', 'BCKG']
+event_Types = ['sz_foc_a', 'sz_foc_f2b', 'sz_foc_ia'] # [PLED , GPED, PLED]
+
 
 drop_channels = ['PHOTIC-REF', 'IBI', 'BURSTS', 'SUPPR', 'EEG ROC-REF', 'EEG LOC-REF', 'EEG EKG1-REF', 'EMG-REF', 'EEG C3P-REF', 'EEG C4P-REF', 'EEG SP1-REF', 'EEG SP2-REF', \
                  'EEG LUC-REF', 'EEG RLC-REF', 'EEG RESP1-REF', 'EEG RESP2-REF', 'EEG EKG-REF', 'RESP ABDOMEN-REF', 'ECG EKG-REF', 'PULSE RATE', 'EEG PG2-REF', 'EEG PG1-REF']
@@ -237,18 +240,37 @@ def convert_signals_sz_chalenge_2025_montage(signals, Rawdata):
     )
     return new_signals
 
-def readEDF(fileName):
+def find_index_with_substring(lst, substring):
+    try:
+        return next(i for i, item in enumerate(lst) if substring in item)
+    except StopIteration:
+        return -1
+
+def readEDF(fileName, ref_tsv):
+
+    events_list = []
+    eventData = Annotations.loadTsv(ref_tsv).events
+
+    for ev in eventData:
+        ch_ind = find_index_with_substring(ch_names_after_convert_sz_chalenge_2025_montage, ev["channels"][0])
+        if ev["eventType"].value == event_Types[0]:
+            eventType = 2   # PLED
+        elif ev["eventType"].value == event_Types[1]:
+            eventType = 3  # GPED
+        elif ev["eventType"].value == event_Types[2]:
+            eventType = 2  # PLED
+        else:
+            eventType = 1    # SPSW
+        ev_list = [ch_ind, float(ev["onset"])/60,float(ev["duration"]),eventType]
+
+        events_list.append(ev_list)
+    if len(events_list) == 0:
+        print(set(eventData[:,3]), "  in file: ", fileName,"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        return [None, None, None, None]
+
     Rawdata = mne.io.read_raw_edf(fileName, preload=True)
-    if drop_channels is not None:
-        useless_chs = []
-        for ch in drop_channels:
-            if ch in Rawdata.ch_names:
-                useless_chs.append(ch)
-        Rawdata.drop_channels(useless_chs)
-    if chOrder_standard is not None and len(chOrder_standard) == len(Rawdata.ch_names):
-        Rawdata.reorder_channels(chOrder_standard)
-    if Rawdata.ch_names != chOrder_standard:
-        raise ValueError
+    # if Rawdata.ch_names != SzCORE_format:   # there are a lot of mistakes in chanels names in SzCORE with small / big latters. if ignore - it is ok
+    #     raise ValueError
 
     Rawdata.filter(l_freq=0.1, h_freq=75.0)
     Rawdata.notch_filter(50.0)
@@ -256,51 +278,62 @@ def readEDF(fileName):
 
     _, times = Rawdata[:]
     signals = Rawdata.get_data(units='uV')
-    RecFile = fileName[0:-3] + "rec"
-    eventData = np.genfromtxt(RecFile, delimiter=",")
+
     Rawdata.close()
-    return [signals, times, eventData, Rawdata]
+    return [signals, times,  np.array(events_list), Rawdata]
 
 
-def load_up_objects(BaseDir, Features, OffendingChannels, Labels, OutDir, banana_half_montage, sz_chalenge_2025_montage):
+def load_up_objects(BaseDir, OutDir):
+    ev_type_dict={}
+    n_none_events = 0
     for dirName, subdirList, fileList in tqdm(os.walk(BaseDir)):
         print("Found directory: %s" % dirName)
-        for fname in fileList:
-            if fname[-4:] == ".edf":
-                print("\t%s" % fname)
-                try:
-                    [signals, times, event, Rawdata] = readEDF(
-                        dirName + "/" + fname
-                    )  # event is the .rec file in the form of an array
-                    if banana_half_montage:
-                        signals = convert_signals_half_banana(signals, Rawdata)
-                    elif sz_chalenge_2025_montage:
-                        signals = convert_signals_sz_chalenge_2025_montage(signals, Rawdata)
-                    else:
-                        signals = convert_signals_sz_chalenge_2025_montage(signals, Rawdata)  # debug
+        for ref_tsv in Path(dirName).glob("**/*.tsv"):  # use tsv for loop to be sure that we will have
+            print(ref_tsv)
+            edf_path = ref_tsv
+            fname = str(edf_path)[:-10]+'eeg.edf'   #  replace "events.tsv" to "eeg.edf"
+            if not os.path.exists(fname):
+                print("*.tsv file without *.edf : ",ref_tsv)
+                continue
 
-                except (ValueError, KeyError):
-                    print("something funky happened in " + dirName + "/" + fname)
+            last_part = os.path.basename(ref_tsv)
+            res_pkl_name = os.path.join(OutDir,last_part)[:-4]+'.pkl'
+
+
+            print("\t%s" % fname)
+            try:
+                [signals, times, event, Rawdata] = readEDF( fname, ref_tsv)  # event is the .rec file in the form of an array
+                if event is None:
+                    n_none_events += 1
                     continue
-                signals, offending_channels, labels = BuildEvents(signals, times, event)
+                for ev in list(event):
+                    if ev_type_dict.get(ev[3]) is not None:
+                        ev_type_dict[ev[3]] += 1
+                    else:
+                        ev_type_dict[ev[3]] = 1
 
-                for idx, (signal, offending_channel, label) in enumerate(
-                    zip(signals, offending_channels, labels)
-                ):
-                    sample = {
-                        "signal": signal,
-                        "offending_channel": offending_channel,
-                        "label": label,
-                    }
-                    save_pickle(
-                        sample,
-                        os.path.join(
-                            OutDir, fname.split(".")[0] + "-" + str(idx) + ".pkl"
-                        ),
-                    )
+                # if banana_half_montage:
+                #     signals = convert_signals_half_banana(signals, Rawdata)
+                # elif sz_chalenge_2025_montage:
+                #     signals = convert_signals_sz_chalenge_2025_montage(signals, Rawdata)
+                # else:
+                #     signals = convert_signals_sz_chalenge_2025_montage(signals, Rawdata)  # debug
 
-    return Features, Labels, OffendingChannels
+            except (ValueError, KeyError):
+                print("something funky happened in " + dirName + "/" + fname)
+                continue
+            # signals, offending_channels, labels = BuildEvents(signals, times, event)
 
+            # for idx, (signal, event_i) in enumerate(
+            #     zip(signals, event)
+            # ):
+            sample = {
+                "signal": signals,
+                "event": event,
+            }
+            save_pickle(sample, res_pkl_name)
+    print(ev_type_dict, "n_none_events:", n_none_events)
+    return
 
 def save_pickle(object, filename):
     with open(filename, "wb") as f:
@@ -308,134 +341,72 @@ def save_pickle(object, filename):
 
 
 """
-TUEV dataset is downloaded from https://isip.piconepress.com/projects/tuh_eeg/html/downloads.shtml
+ convert to labram pkl
 """
+
 banana_half_montage = False
-sz_chalenge_2025_montage = False
+sz_chalenge_2025_montage = False  # no need convert, it is already in correct montage
 is_random_val = False
 
-# root = "/share/TUEV/"
-# root = "/userhome1/jiangweibang/Datasets/TUH_Event/v2.0.0/edf"
-root = "/media/public/Datasets/TUEV/tuev/edf"
+# root = "/media/public/Datasets/epilepsybenchmarks_chellenge/BIDS_Siena"
+# out_path = "/media/public/Datasets/epilepsybenchmarks_chellenge/BIDS_Siena_to_labram_pkl"
+#
+# root = "/media/public/Datasets/epilepsybenchmarks_chellenge/BIDS_CHB-MIT"
+# out_path = "/media/public/Datasets/epilepsybenchmarks_chellenge/BIDS_CHB-MIT_to_labram_pkl"
 
-if banana_half_montage:
-    train_out_dir = os.path.join(root, "processed_train_banana_half")
-    eval_out_dir = os.path.join(root, "processed_eval_banana_half")
-elif sz_chalenge_2025_montage:
-    train_out_dir = os.path.join(root, "processed_train_sz_chalenge_2025_montage_norandom")
-    eval_out_dir = os.path.join(root, "processed_eval_sz_chalenge_2025_montage_norandom")
-else:
-    train_out_dir = os.path.join(root, "pr_train_qqq")
-    eval_out_dir = os.path.join(root, "pr_eval_qqq")
+root = "/media/public/Datasets/epilepsybenchmarks_chellenge/tuh_train_preprocess"
+out_path = "/media/public/Datasets/epilepsybenchmarks_chellenge/tuh_train_preprocess_pkl"
 
-if not os.path.exists(train_out_dir):
-    os.makedirs(train_out_dir)
-if not os.path.exists(eval_out_dir):
-    os.makedirs(eval_out_dir)
+all_out_dir = os.path.join(out_path, "all")
 
-BaseDirEval = os.path.join(root, "eval")
+if not os.path.exists(all_out_dir):
+    os.makedirs(all_out_dir)
+
 fs = 200
-EvalFeatures = np.empty(
-    (0, 23, fs)
-)  # 0 for lack of intialization, 22 for channels, fs for num of points
-EvalLabels = np.empty([0, 1])
-EvalOffendingChannel = np.empty([0, 1])
-load_up_objects(
-    BaseDirEval, EvalFeatures, EvalLabels, EvalOffendingChannel, eval_out_dir, banana_half_montage, sz_chalenge_2025_montage
-)
 
-BaseDirTrain = os.path.join(root, "train")
-fs = 200
-TrainFeatures = np.empty(
-    (0, 23, fs)
-)  # 0 for lack of intialization, 22 for channels, fs for num of points
-TrainLabels = np.empty([0, 1])
-TrainOffendingChannel = np.empty([0, 1])
 load_up_objects(
-    BaseDirTrain, TrainFeatures, TrainLabels, TrainOffendingChannel, train_out_dir, banana_half_montage, sz_chalenge_2025_montage
+    root, all_out_dir
 )
 
 
-#transfer to train, eval, and test
+#transfer to train and eval
 seed = 4523
 np.random.seed(seed)
 
-if banana_half_montage:
-    train_files = os.listdir(os.path.join(root, "processed_train_banana_half"))
-    test_files = os.listdir(os.path.join(root, "processed_eval_banana_half"))
-elif sz_chalenge_2025_montage:
-    train_files = os.listdir(os.path.join(root, "processed_train_sz_chalenge_2025_montage_norandom"))
-    test_files = os.listdir(os.path.join(root, "processed_eval_sz_chalenge_2025_montage_norandom"))
-else:
-    train_files = os.listdir(os.path.join(root, "pr_train_qqq"))
-    test_files = os.listdir(os.path.join(root, "pr_eval_qqq"))
+All_files = os.listdir(all_out_dir)
 
-
-
-train_sub = list(set([f.split("_")[0] for f in train_files]))
+train_sub = list(set([f.split("_")[0] for f in All_files]))
 print("train sub", len(train_sub))
 
 if is_random_val:
     val_sub = np.random.choice(train_sub, size=int(
         len(train_sub) * 0.2), replace=False)
     train_sub = list(set(train_sub) - set(val_sub))
-    val_files = [f for f in train_files if f.split("_")[0] in val_sub]
-    train_files = [f for f in train_files if f.split("_")[0] in train_sub]
+    val_files = [f for f in All_files if f.split("_")[0] in val_sub]
+    train_files = [f for f in All_files if f.split("_")[0] in train_sub]
 else:
     num_of_val = int(len(train_sub)*0.2)
     val_sub = train_sub[:num_of_val]
     train_sub = list(set(train_sub) - set(val_sub))
-    val_files = [f for f in train_files if f.split("_")[0] in val_sub]
-    train_files = [f for f in train_files if f.split("_")[0] in train_sub]
+    val_files = [f for f in All_files if f.split("_")[0] in val_sub]
+    train_files = [f for f in All_files if f.split("_")[0] in train_sub]
+
+    train_path = os.path.join(out_path, 'splited', 'train')
+    eval_path  = os.path.join(out_path, 'splited', 'eval')
+
+    if not os.path.exists(train_path):
+        os.makedirs(train_path)
+    if not os.path.exists(eval_path):
+        os.makedirs(eval_path)
+
+    for file in train_files:
+        os.system(f"cp {os.path.join(all_out_dir, file)} {train_path}")
+    for file in val_files:
+        os.system(f"cp {os.path.join(all_out_dir, file)} {eval_path}")
 
 
-if banana_half_montage:
-    train_path = os.path.join(root, 'processed_banana_half', 'processed_train_banana')
-    eval_path = os.path.join(root, 'processed_banana_half', 'processed_eval_banana')
-    test_path = os.path.join(root, 'processed_banana_half', 'processed_test_banana')
-    if not os.path.exists(train_path):
-        os.makedirs(train_path)
-    if not os.path.exists(eval_path):
-        os.makedirs(eval_path)
-    if not os.path.exists(test_path):
-        os.makedirs(test_path)
-    for file in train_files:
-        os.system(f"cp {os.path.join(root, 'processed_train_banana_half', file)} {train_path}")
-    for file in val_files:
-        os.system(f"cp {os.path.join(root, 'processed_train_banana_half', file)} {eval_path}")
-    for file in test_files:
-        os.system(f"cp {os.path.join(root, 'processed_eval_banana_half', file)} {test_path}")
-elif sz_chalenge_2025_montage:
-    train_path = os.path.join(root, 'processed_sz_chalenge_2025_montage_norandom', 'train')
-    eval_path = os.path.join(root, 'processed_sz_chalenge_2025_montage_norandom', 'eval')
-    test_path = os.path.join(root, 'processed_sz_chalenge_2025_montage_norandom', 'test')
-    if not os.path.exists(train_path):
-        os.makedirs(train_path)
-    if not os.path.exists(eval_path):
-        os.makedirs(eval_path)
-    if not os.path.exists(test_path):
-        os.makedirs(test_path)
-    for file in train_files:
-        os.system(f"cp {os.path.join(root, 'processed_train_sz_chalenge_2025_montage_norandom', file)} {train_path}")
-    for file in val_files:
-        os.system(f"cp {os.path.join(root, 'processed_train_sz_chalenge_2025_montage_norandom', file)} {eval_path}")
-    for file in test_files:
-        os.system(f"cp {os.path.join(root, 'processed_eval_sz_chalenge_2025_montage_norandom', file)} {test_path}")
-else:
-    train_path = os.path.join(root, 'pr_qqq', 'train')
-    eval_path = os.path.join(root, 'pr_qqq', 'eval')
-    test_path = os.path.join(root, 'pr_qqq', 'test')
-    if not os.path.exists(train_path):
-        os.makedirs(train_path)
-    if not os.path.exists(eval_path):
-        os.makedirs(eval_path)
-    if not os.path.exists(test_path):
-        os.makedirs(test_path)
-    for file in train_files:
-        os.system(f"cp {os.path.join(root, 'pr_train_qqq', file)} {train_path}")
-    for file in val_files:
-        os.system(f"cp {os.path.join(root, 'pr_train_qqq', file)} {eval_path}")
-    for file in test_files:
-        os.system(f"cp {os.path.join(root, 'pr_eval_qqq', file)} {test_path}")
+
+
+
 
 
