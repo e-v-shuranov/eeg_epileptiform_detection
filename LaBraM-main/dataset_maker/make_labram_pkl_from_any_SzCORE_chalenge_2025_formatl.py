@@ -286,9 +286,10 @@ def readEDF(fileName, ref_tsv):
 def load_up_objects(BaseDir, OutDir):
     ev_type_dict={}
     n_none_events = 0
-    for dirName, subdirList, fileList in tqdm(os.walk(BaseDir)):
-        print("Found directory: %s" % dirName)
-        for ref_tsv in Path(dirName).glob("**/*.tsv"):  # use tsv for loop to be sure that we will have
+    # for dirName, subdirList, fileList in tqdm(os.walk(BaseDir)):
+    for subject in Path(BaseDir).glob("sub-*"):
+        print("Found directory: %s" % subject)
+        for ref_tsv in subject.glob("**/*.tsv"):  # use tsv for loop to be sure that we will have
             print(ref_tsv)
             edf_path = ref_tsv
             fname = str(edf_path)[:-10]+'eeg.edf'   #  replace "events.tsv" to "eeg.edf"
@@ -355,7 +356,7 @@ is_random_val = False
 # out_path = "/media/public/Datasets/epilepsybenchmarks_chellenge/BIDS_CHB-MIT_to_labram_pkl"
 
 root = "/media/public/Datasets/epilepsybenchmarks_chellenge/tuh_train_preprocess"
-out_path = "/media/public/Datasets/epilepsybenchmarks_chellenge/tuh_train_preprocess_pkl"
+out_path = "/media/public/Datasets/epilepsybenchmarks_chellenge/tuh_train_preprocess_pkl2"
 
 all_out_dir = os.path.join(out_path, "all")
 

@@ -170,6 +170,14 @@ def get_randomized_sample_range(sz_events, max_batch_size, signal_length, fs):
 
     return start_pos, end_pos
 
+def train_class_batch_original(model, samples, target, criterion, ch_names, max_batch_size):
+    fs = 200
+    events_samples, targets = get_events_based_data(samples, target, fs = fs, max_batch_size=max_batch_size)
+    events_samples = rearrange(events_samples, 'B N (A T) -> B N A T', T=200).float().to(samples.device, non_blocking=True)
+    outputs_for_events = model(events_samples, ch_names)
+    loss = criterion(outputs_for_events, targets)
+
+    return loss , outputs_for_events, targets
 
 def train_class_batch(model, samples, target, criterion, ch_names, max_batch_size):
     fs = 200
@@ -298,15 +306,20 @@ def train_one_epoch_sz_chlng_2025(model: torch.nn.Module, criterion: torch.nn.Mo
         targets = targets.to(device, non_blocking=True)
         if is_binary:
             targets = targets.float().unsqueeze(-1)
-
+        alpha = 1.0
         if loss_scaler is None:
             samples = samples.half()
             loss, output, target_events = train_class_batch(
                 model, samples, targets, criterion, input_chans, max_batch_size)
         else:
             with torch.cuda.amp.autocast():
-                loss, output, target_events = train_class_batch(
-                    model, samples, targets, criterion, input_chans, max_batch_size)
+                if step % 2 == 0:
+                    loss, output, target_events = train_class_batch_original(
+                        model, samples, targets, criterion, input_chans, max_batch_size)
+                    loss = alpha * loss
+                else:
+                    loss, output, target_events = train_class_batch(
+                        model, samples, targets, criterion, input_chans, max_batch_size)
         # if loss == None:
         #     loss, output, target_events =torch.empty(1, 1, device=samples.device), torch.empty(1, device=samples.device), torch.empty(1, device=samples.device)
         #     # continue
