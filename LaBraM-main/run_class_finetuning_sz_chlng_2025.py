@@ -28,7 +28,7 @@ from optim_factory import create_optimizer, get_parameter_groups, LayerDecayValu
 
 from run_class_finetuning import *
 # from engine_for_finetuning import train_one_epoch, evaluate
-from engine_for_finetuning_sz_chlng_2025 import train_one_epoch_sz_chlng_2025, evaluate, evaluate_f1_sz_chalenge2025
+from engine_for_finetuning_sz_chlng_2025 import train_one_epoch_sz_chlng_2025, evaluate, evaluate_f1_sz_chalenge2025, evaluate_f1_sz_chalenge2025_with_file_splitting_max_batch_size
 
 from utils import NativeScalerWithGradNormCount as NativeScaler
 from utils import prepare_TUEV_dataset
@@ -115,13 +115,29 @@ class TUEVLoader_sz_chalenge_2025_full_files(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         sample = pickle.load(open(os.path.join(self.root, self.files[index]), "rb"))
-        # sample = pickle.load(open(os.path.join(self.root, "/media/public/Datasets/epilepsybenchmarks_chellenge/BIDS_Siena_to_labram_pkl/all/sub-12_ses-01_task-szMonitoring_run-02_events.pkl"), "rb"))
-
         X = sample["signal"]
         if self.sampling_rate != self.default_rate:
             X = resample(X, 5 * self.sampling_rate, axis=-1)
         Y = sample["event"]
         # Y = index
+        X = torch.FloatTensor(X)
+        Y = torch.FloatTensor(Y)
+        return X, self.files[index], Y
+
+
+class All_Loader_sz_chalenge_2025_full_files(torch.utils.data.Dataset):
+    def __init__(self, files):
+        sort_nicely(files)
+        self.files = files
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, index):
+        sample = pickle.load(open(self.files[index], "rb"))
+        # sample = pickle.load(open(os.path.join(self.root, "/media/public/Datasets/epilepsybenchmarks_chellenge/BIDS_Siena_to_labram_pkl/all/sub-12_ses-01_task-szMonitoring_run-02_events.pkl"), "rb"))
+        X = sample["signal"]
+        Y = sample["event"]
         X = torch.FloatTensor(X)
         Y = torch.FloatTensor(Y)
         return X, self.files[index], Y
@@ -147,6 +163,45 @@ def prepare_TUEV_dataset_sz_chalenge_2025_full_files(root):
     print(len(train_files), len(val_files), len(test_files))
     return train_dataset, test_dataset, val_dataset
 
+def get_full_paths(directory):
+    file_list = os.listdir(directory)
+    full_paths = [os.path.join(directory, f) for f in file_list]
+    return full_paths
+
+def prepare_All_dataset_sz_chalenge_2025_full_files(All_paths):
+    # set random seed
+    seed = 4523
+    np.random.seed(seed)
+    Siena_path, TUSZ_path, TUEV_path = All_paths
+
+    TUEV_train_path = os.path.join(TUEV_path, "train")
+    TUEV_eval_path = os.path.join(TUEV_path, "eval")
+    TUEV_test_path = os.path.join(TUEV_path, "test")
+
+    TUEV_train_files = get_full_paths(TUEV_train_path)
+    TUEV_val_files = get_full_paths(TUEV_eval_path)[:2]
+    TUEV_test_files = get_full_paths(TUEV_test_path)[:1500]
+
+    Siena_train_path = os.path.join(Siena_path, "train")
+    Siena_eval_path = os.path.join(Siena_path, "eval")
+
+    Siena_train_files = get_full_paths(Siena_train_path)
+    Siena_val_files = get_full_paths(Siena_eval_path)[:1500]
+
+    TUSZ_train_path = os.path.join(TUSZ_path, "train")
+    TUSZ_eval_path = os.path.join(TUSZ_path, "eval")
+
+    TUSZ_train_files = get_full_paths(TUSZ_train_path)
+    TUSZ_val_files = get_full_paths(TUSZ_eval_path)[:1500]
+
+
+    # prepare training and test data loader
+    train_dataset = All_Loader_sz_chalenge_2025_full_files(Siena_train_files+TUSZ_train_files+TUEV_train_files)
+    test_dataset = All_Loader_sz_chalenge_2025_full_files(TUEV_test_files)
+    val_dataset = All_Loader_sz_chalenge_2025_full_files(Siena_val_files+TUSZ_val_files+TUEV_val_files)
+
+    print(len(Siena_train_files+TUSZ_train_files+TUEV_train_files), len(Siena_val_files+TUSZ_val_files+TUEV_val_files), len(TUEV_test_files))
+    return train_dataset, test_dataset, val_dataset
 
 def prepare_Siena_dataset_sz_chalenge_2025_full_files(root):
     # set random seed
@@ -207,9 +262,13 @@ def get_dataset_sz_chalenge_2025_full_files(args):
         ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
         args.nb_classes = 1
         metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
-    elif args.dataset == 'TUEV':
-        # train_dataset, test_dataset, val_dataset = prepare_TUEV_dataset_sz_chalenge_2025_full_files("/media/public/Datasets/TUEV/tuev/edf/processed_sz_chalenge_2025_montage_full_data_norandom")   # bad training because a lot of no sz data
-        train_dataset, test_dataset, val_dataset = prepare_TUEV_dataset_sz_chalenge_2025_full_files("/media/public/Datasets/TUEV/tuev/edf/processed_sz_chalenge_2025_full_file_sz_only")
+    elif args.dataset == 'All':
+        # Siena_test_path = "/media/public/Datasets/epilepsybenchmarks_chellenge/BIDS_Siena_to_labram_pkl/test1"
+        TUEV_path = "/media/public/Datasets/TUEV/tuev/edf/processed_sz_chalenge_2025_full_file_sz_only"
+        Siena_path = "/media/public/Datasets/epilepsybenchmarks_chellenge/BIDS_Siena_to_labram_pkl/splited"
+        TUSZ_path = "/media/public/Datasets/epilepsybenchmarks_chellenge/tuh_train_preprocess_pkl/splited"
+
+        train_dataset, test_dataset, val_dataset = prepare_All_dataset_sz_chalenge_2025_full_files([Siena_path, TUSZ_path, TUEV_path])
 
         ch_names_after_convert_sz_chalenge_2025_montage = ['FP1-Avg', 'F3-Avg', 'C3-Avg', 'P3-Avg',
                                                            'O1-Avg', 'F7-Avg', 'T3-Avg', 'T5-Avg',
@@ -527,9 +586,9 @@ def main(args, ds_init):
             print(f"Accuracy of the network on the {len(dataset_val)} val EEG: {val_stats['accuracy']:.2f}%")
             test_stats = evaluate(data_loader_test[0], model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1)
             print(f"labramtest: Accuracy of the network on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%")
-            f1_test_stats = evaluate_f1_sz_chalenge2025(data_loader_test[1], model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1, max_batch_size = args.max_batch_size)
+            f1_test_stats = evaluate_f1_sz_chalenge2025_with_file_splitting_max_batch_size(data_loader_test[1], model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1, max_batch_size = args.max_batch_size)
             print(f"f1_sz_2025_test: f1 of the network on the {len(dataset_test_sz_chalenge_2025_full_files)} test EEG: {f1_test_stats['f1']:.2f}%")
-            f1_val__stats = evaluate_f1_sz_chalenge2025(data_loader_test[2], model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1, max_batch_size = args.max_batch_size)
+            f1_val__stats = evaluate_f1_sz_chalenge2025_with_file_splitting_max_batch_size(data_loader_test[2], model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1, max_batch_size = args.max_batch_size)
             print(f"f1_sz_2025_val: f1 of the network on the {len(dataset_val_sz_chalenge_2025_full_files)} test EEG: {f1_val__stats['f1']:.2f}%")
 
             if max_accuracy < val_stats["accuracy"]:

@@ -793,8 +793,8 @@ def prepare_TUEV_dataset(root):
 
     # prepare training and test data loader
     train_dataset = TUEVLoader(train_path, train_files)
-    test_dataset = TUEVLoader(test_path, test_files[:2000])
-    val_dataset = TUEVLoader(eval_path, val_files[:2000])
+    test_dataset = TUEVLoader(test_path, test_files[:200])
+    val_dataset = TUEVLoader(eval_path, val_files[:200])
 
     print(len(train_files), len(val_files), len(test_files))
     return train_dataset, test_dataset, val_dataset

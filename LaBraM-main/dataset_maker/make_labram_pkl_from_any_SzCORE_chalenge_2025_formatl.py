@@ -14,8 +14,10 @@ from epilepsy2bids.annotations import Annotations
 SzCORE_format = ['Fp1-Avg', 'F3-Avg', 'C3-Avg', 'P3-Avg', 'O1-Avg', 'F7-Avg', 'T3-Avg', 'T5-Avg', 'Fz-Avg', 'Cz-Avg', 'Pz-Avg', 'Fp2-Avg', 'F4-Avg', 'C4-Avg', 'P4-Avg', 'O2-Avg', 'F8-Avg', 'T4-Avg', 'T6-Avg']
 
 labram_event_types = ['SPSW', 'PLED' , 'GPED', 'EYEM', 'ARTF', 'BCKG']
-event_Types = ['sz_foc_a', 'sz_foc_f2b', 'sz_foc_ia'] # [PLED , GPED, PLED]
-
+#  Siena: {'sz_foc_ia': 33, 'sz_foc_f2b': 10, 'sz_foc_a': 4}   TUSZ: {'sz': 3971, 'bckg': 5969}           CHB-MIT:{'sz': 198, 'bckg': 545}  - no need
+event_Types = ['sz_foc_a', 'sz_foc_f2b', 'sz_foc_ia','bckg','sz'] # [PLED , GPED, PLED]
+# output:
+# Siena {2.0: 37, 3.0: 10}
 
 drop_channels = ['PHOTIC-REF', 'IBI', 'BURSTS', 'SUPPR', 'EEG ROC-REF', 'EEG LOC-REF', 'EEG EKG1-REF', 'EMG-REF', 'EEG C3P-REF', 'EEG C4P-REF', 'EEG SP1-REF', 'EEG SP2-REF', \
                  'EEG LUC-REF', 'EEG RLC-REF', 'EEG RESP1-REF', 'EEG RESP2-REF', 'EEG EKG-REF', 'RESP ABDOMEN-REF', 'ECG EKG-REF', 'PULSE RATE', 'EEG PG2-REF', 'EEG PG1-REF']
@@ -259,14 +261,25 @@ def readEDF(fileName, ref_tsv):
             eventType = 3  # GPED
         elif ev["eventType"].value == event_Types[2]:
             eventType = 2  # PLED
-        else:
+        elif ev["eventType"].value == event_Types[3]:
+            eventType = 6
+        elif ev["eventType"].value == event_Types[4]:
             eventType = 1    # SPSW
-        ev_list = [ch_ind, float(ev["onset"])/60,float(ev["duration"]),eventType]
+        else:
+            eventType = -1
 
-        events_list.append(ev_list)
+        if not ((eventType == -1) or (eventType >3)):
+            ev_list = [ch_ind, float(ev["onset"]),float(ev["duration"]),eventType]
+            events_list.append(ev_list)
+
+        # ev_list = [ch_ind, float(ev["onset"])/60,float(ev["duration"]),ev["eventType"].value]
+        # events_list.append(ev_list)
+
     if len(events_list) == 0:
-        print(set(eventData[:,3]), "  in file: ", fileName,"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        print(eventData, "  in file: ", fileName,"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         return [None, None, None, None]
+
+    # return [None, None, np.array(events_list), None]
 
     Rawdata = mne.io.read_raw_edf(fileName, preload=True)
     # if Rawdata.ch_names != SzCORE_format:   # there are a lot of mistakes in chanels names in SzCORE with small / big latters. if ignore - it is ok
@@ -278,6 +291,9 @@ def readEDF(fileName, ref_tsv):
 
     _, times = Rawdata[:]
     signals = Rawdata.get_data(units='uV')
+    if signals.shape[1] < 1000:
+        print("len(signals): ", len(signals), "  in file: ", fileName,"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        return [None, None, None, None]
 
     Rawdata.close()
     return [signals, times,  np.array(events_list), Rawdata]
@@ -285,7 +301,7 @@ def readEDF(fileName, ref_tsv):
 
 def load_up_objects(BaseDir, OutDir):
     ev_type_dict={}
-    n_none_events = 0
+    n_none_events = 0 # none events or short file < 5 sec
     # for dirName, subdirList, fileList in tqdm(os.walk(BaseDir)):
     for subject in Path(BaseDir).glob("sub-*"):
         print("Found directory: %s" % subject)
@@ -302,6 +318,7 @@ def load_up_objects(BaseDir, OutDir):
 
 
             print("\t%s" % fname)
+
             try:
                 [signals, times, event, Rawdata] = readEDF( fname, ref_tsv)  # event is the .rec file in the form of an array
                 if event is None:
@@ -312,7 +329,7 @@ def load_up_objects(BaseDir, OutDir):
                         ev_type_dict[ev[3]] += 1
                     else:
                         ev_type_dict[ev[3]] = 1
-
+                # continue
                 # if banana_half_montage:
                 #     signals = convert_signals_half_banana(signals, Rawdata)
                 # elif sz_chalenge_2025_montage:
@@ -333,7 +350,7 @@ def load_up_objects(BaseDir, OutDir):
                 "event": event,
             }
             save_pickle(sample, res_pkl_name)
-    print(ev_type_dict, "n_none_events:", n_none_events)
+    print(ev_type_dict, "n_none_events or short file < 5 sec:", n_none_events)
     return
 
 def save_pickle(object, filename):
@@ -356,7 +373,7 @@ is_random_val = False
 # out_path = "/media/public/Datasets/epilepsybenchmarks_chellenge/BIDS_CHB-MIT_to_labram_pkl"
 
 root = "/media/public/Datasets/epilepsybenchmarks_chellenge/tuh_train_preprocess"
-out_path = "/media/public/Datasets/epilepsybenchmarks_chellenge/tuh_train_preprocess_pkl2"
+out_path = "/media/public/Datasets/epilepsybenchmarks_chellenge/tuh_train_preprocess_pkl"
 
 all_out_dir = os.path.join(out_path, "all")
 

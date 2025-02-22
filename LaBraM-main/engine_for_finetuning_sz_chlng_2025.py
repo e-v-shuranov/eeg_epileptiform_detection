@@ -86,7 +86,7 @@ def get_events_based_data(samples, event_data_torch , fs=200, max_batch_size=512
     events_samples = torch.zeros((len, samples.shape[1], 5*fs), dtype=torch.float)
     for i in range(len):
         start = int(((event_data_torch[0,i,1] - 2) * fs).round())
-        end = int(((event_data_torch[0,i,1] + 3) * fs).round())
+        end = start + int(5 * fs)
         if start<0:
             start = 0
             end = int(5 * fs)
@@ -170,12 +170,45 @@ def get_randomized_sample_range(sz_events, max_batch_size, signal_length, fs):
 
     return start_pos, end_pos
 
+def train_class_batch_binary_from_6_classes(model, samples, target, criterion, ch_names, max_batch_size):
+    fs = 200
+    n_samples = samples.shape[-1]
+    if n_samples<1000:
+        samples = torch.cat([samples, torch.zeros(samples.shape[0],samples.shape[1],(1000-n_samples)).to(samples.device)], dim=2)
+
+    events_samples, targets = get_events_based_data(samples, target, fs = fs, max_batch_size=max_batch_size)
+    events_samples = rearrange(events_samples, 'B N (A T) -> B N A T', T=200).float().to(samples.device, non_blocking=True)
+    outputs_for_events = model(events_samples, ch_names)
+    hyp = (outputs_for_events.softmax(dim=1))[:, 0:3].sum(dim=1)
+    ref = (targets < 3).long()
+    loss = criterion(hyp, ref.float())
+
+    # Если нет событий или слишком короткая запись, возвращаемся без потерь
+    loss = torch.where(
+        torch.tensor(len(targets) == 0 or n_samples < 1000, device=samples.device),
+        torch.tensor(0.0, device=samples.device),
+        loss.to(samples.device)
+    )
+
+    return loss , outputs_for_events, targets
+
 def train_class_batch_original(model, samples, target, criterion, ch_names, max_batch_size):
     fs = 200
+    n_samples = samples.shape[-1]
+    if n_samples<1000:
+        samples = torch.cat([samples, torch.zeros(samples.shape[0],samples.shape[1],(1000-n_samples)).to(samples.device)], dim=2)
+
     events_samples, targets = get_events_based_data(samples, target, fs = fs, max_batch_size=max_batch_size)
     events_samples = rearrange(events_samples, 'B N (A T) -> B N A T', T=200).float().to(samples.device, non_blocking=True)
     outputs_for_events = model(events_samples, ch_names)
     loss = criterion(outputs_for_events, targets)
+
+    # Если нет событий или слишком короткая запись, возвращаемся без потерь
+    loss = torch.where(
+        torch.tensor(len(targets) == 0 or n_samples < 1000, device=samples.device),
+        torch.tensor(0.0, device=samples.device),
+        loss.to(samples.device)
+    )
 
     return loss , outputs_for_events, targets
 
@@ -188,10 +221,10 @@ def train_class_batch(model, samples, target, criterion, ch_names, max_batch_siz
     event_indices = [(int(start.item() * fs), int(end.item() * fs)) for start, end in sz_events]
 
     # Если нет событий, возвращаемся без потерь
-    if len(event_indices) == 0:
-        return torch.tensor(0.0).to(samples.device), None, None
+    if n_samples<1000:
+        samples = torch.cat([samples, torch.zeros(samples.shape[0],samples.shape[1],(1000-n_samples)).to(samples.device)], dim=2)
 
-    start_pos, end_pos = get_randomized_sample_range(event_indices, max_batch_size, n_samples, fs)
+    start_pos, end_pos = get_randomized_sample_range(event_indices, max_batch_size, samples.shape[-1], fs)
 
     smple_5_sec = resample_tensor(samples[0, :, start_pos:end_pos], new_freq=1)
     smple_5_sec = rearrange(smple_5_sec, 'B N (A T) -> B N A T', T=200).float().to(samples.device, non_blocking=True)
@@ -207,7 +240,14 @@ def train_class_batch(model, samples, target, criterion, ch_names, max_batch_siz
         1 - f1
     ).to(samples.device)
 
-    ref_mask = mask_from_events(ref, smple_5_sec.shape[0], fs)
+    # Если нет событий или слишком короткая запись, возвращаемся без потерь
+    add_loss_for_f1_sz_estimation = torch.where(
+        torch.tensor(len(event_indices) == 0 or n_samples < 1000, device=samples.device),
+        torch.tensor(0.0, device=samples.device),
+        add_loss_for_f1_sz_estimation.to(samples.device)
+    )
+
+    ref_mask = mask_from_events(ref, (smple_5_sec.shape[0]))
     return add_loss_for_f1_sz_estimation, outputs, ref_mask
 
 
@@ -288,6 +328,10 @@ def train_one_epoch_sz_chlng_2025(model: torch.nn.Module, criterion: torch.nn.Mo
     # num_training_steps_per_epoch = 2
     for data_iter_step, (samples, fname, targets) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         print("start file:",fname)   # debug
+        if ("Siena" in fname[0]) or ("tuh_train" in fname[0]):
+            TUSZ_or_Siena = True
+        else:
+            TUSZ_or_Siena = False
         step = data_iter_step // update_freq
         if step >= num_training_steps_per_epoch:
             continue
@@ -306,7 +350,7 @@ def train_one_epoch_sz_chlng_2025(model: torch.nn.Module, criterion: torch.nn.Mo
         targets = targets.to(device, non_blocking=True)
         if is_binary:
             targets = targets.float().unsqueeze(-1)
-        alpha = 1.0
+        alpha = 0.5
         if loss_scaler is None:
             samples = samples.half()
             loss, output, target_events = train_class_batch(
@@ -314,8 +358,14 @@ def train_one_epoch_sz_chlng_2025(model: torch.nn.Module, criterion: torch.nn.Mo
         else:
             with torch.cuda.amp.autocast():
                 if step % 2 == 0:
-                    loss, output, target_events = train_class_batch_original(
-                        model, samples, targets, criterion, input_chans, max_batch_size)
+                    if TUSZ_or_Siena:
+                        loss, output, target_events = train_class_batch(
+                            model, samples, targets, criterion, input_chans, max_batch_size)
+                        # loss, output, target_events = train_class_batch_binary_from_6_classes(
+                        #     model, samples, targets, torch.nn.BCEWithLogitsLoss(), input_chans, max_batch_size)
+                    else:
+                        loss, output, target_events = train_class_batch_original(
+                            model, samples, targets, criterion, input_chans, max_batch_size)
                     loss = alpha * loss
                 else:
                     loss, output, target_events = train_class_batch(
@@ -622,27 +672,44 @@ def evaluate_f1_sz_chalenge2025_with_file_splitting_max_batch_size(data_loader, 
     print('* loss {losses.global_avg:.3f}'
           .format(losses=metric_logger.loss))
 
-    # Группируем файлы по номеру объекта
-    grouped_f1 = defaultdict(list)
-    grouped_sens = defaultdict(list)
+    has_incorrect_files = False
+
+    # Словарь для хранения значений F1 и Sens для корректных объектов
+    grouped_f1 = {}
+    grouped_sens = {}
 
     for name, f1_value, sens_value in zip(f_names_all, f1_all, sens_all):
-        object_number = int(name.split('-')[1].split('_')[0])
-        grouped_f1[object_number].append(f1_value)
-        grouped_sens[object_number].append(sens_value)
+        try:
+            object_number = int(name.split('-')[1].split('_')[0])
+            if object_number not in grouped_f1:
+                grouped_f1[object_number] = []
+                grouped_sens[object_number] = []
 
-    # Усредняем значения F1 для каждого объекта
-    average_f1_per_object = {obj_num: sum(values) / len(values) for obj_num, values in grouped_f1.items()}
-    average_sens_per_object = {obj_num: sum(values) / len(values) for obj_num, values in grouped_sens.items()}
+            grouped_f1[object_number].append(f1_value)
+            grouped_sens[object_number].append(sens_value)
 
-    # Усредняем средние значения по всем объектам
-    overall_average_f1 = sum(average_f1_per_object.values()) / len(average_f1_per_object)
-    overall_average_sens = sum(average_sens_per_object.values()) / len(average_sens_per_object)
+        except (ValueError, IndexError):
+            has_incorrect_files = True
+            break
+
+    if has_incorrect_files:
+        # Если обнаружены некорректные файлы, усредняем по всем файлам
+        overall_average_f1 = sum(f1_all) / len(f1_all)
+        overall_average_sens = sum(sens_all) / len(sens_all)
+    else:
+        # Усредняем значения F1 для каждого объекта
+        average_f1_per_object = {obj_num: sum(values) / len(values) for obj_num, values in grouped_f1.items()}
+        average_sens_per_object = {obj_num: sum(values) / len(values) for obj_num, values in grouped_sens.items()}
+
+        # Усредняем средние значения по всем объектам
+        overall_average_f1 = sum(average_f1_per_object.values()) / len(average_f1_per_object)
+        overall_average_sens = sum(average_sens_per_object.values()) / len(average_sens_per_object)
+
 
     ret = {}
     ret['loss'] = metric_logger.loss.global_avg
-    ret['f1'] = overall_average_f1
-    ret['sensitivity'] = overall_average_sens
+    ret['f1'] = float(overall_average_f1.detach().cpu().numpy())
+    ret['sensitivity'] = float(overall_average_sens.detach().cpu().numpy())
 
     return ret
 

@@ -389,17 +389,19 @@ def f1_sz_estimation(hyp, ref_event):
     sensitivity, precision, f1 = computeScores(ref_true, tp_value, fp_value)
     return f1, sensitivity
 
-def mask_from_events(events, numSamples, fs):
-    """
-    Построение бинарной маски по списку событий с использованием дифференцируемой аппроксимации.
-    Здесь используется сигмоида для мягкого приближения индикаторной функции.
-    """
-    time_axis = torch.linspace(0, numSamples / fs, steps=numSamples, device=events.device)
-    mask = torch.zeros_like(time_axis)
-    for event in events:
-        mask += torch.sigmoid(100 * (time_axis - event[0])) * (1 - torch.sigmoid(100 * (time_axis - event[1])))
-    # В качестве финального шага можно применить пороговую функцию (не дифференцируемую), или вернуть мягкую маску
-    return mask > 0.5
+def mask_from_events(events, num_seconds):
+    # Создаем пустую маску длиной num_seconds
+    mask = torch.zeros(num_seconds).to(events.device)
 
+    start_times = events[:,0]
+    end_times = events[:,1]
 
+    # Определяем, какие секунды попадают под событие
+    start_second = torch.clamp(torch.floor(start_times).long(), min=0, max=num_seconds - 1)
+    end_second = torch.clamp(torch.ceil(end_times).long(), min=0, max=num_seconds - 1)
 
+    # Устанавливаем единицы для всех секунд, затронутых событием
+    for n_event in range(events.shape[0]):
+        mask[start_second[n_event]:end_second[n_event]] = 1
+
+    return mask
