@@ -16,6 +16,8 @@ import random
 from timm.utils import ModelEma
 import utils
 from einops import rearrange
+import pywt
+from pyhealth.metrics import  multiclass_metrics_fn
 from collections import defaultdict
 
 # from ML_solution.infer_model import device
@@ -510,7 +512,7 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
 
 
 @torch.no_grad()
-def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True,max_batch_size = 100):
+def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True,max_batch_size = 100, XGB_model=None, optimal_threshold=0.5, store_embedings = False,):
     input_chans = None
     if ch_names is not None:
         input_chans = utils.get_input_chans(ch_names)
@@ -527,10 +529,17 @@ def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_n
     f1_all = []
     sens_all = []
     f_names_all = []
+    # pred = []
+    # true = []
     fs = 200
+    if store_embedings:
+        emb_for_store = []
+        target_for_fusion = []
+
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
         print(batch[1])
         EEG = batch[0]
+        EEG_xgb = batch[0]
         target = batch[-1].to(device)
         EEG = EEG.float().to(device, non_blocking=True) / 100
 
@@ -541,6 +550,21 @@ def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_n
         ref = labram_events_to_sz_events(target[0], start_pos / fs, end_pos / fs).to(device)
         outputs = model(smple_5_sec, input_chans = input_chans)
         hyp = (outputs.softmax(dim=1))[:, 0:3].sum(dim=1)
+
+        if XGB_model:
+            to_pred = []
+            EEG_xgb = resample_tensor(EEG_xgb[0, :, :], new_freq=1)
+            for chunk in EEG_xgb:
+                coefficients = pywt.wavedec2(chunk.numpy(), wavelet='haar', level=4)
+                X = coefficients[0]
+                to_pred.append(X.reshape(126))
+
+            artefact_removing_prob = XGB_model.predict_proba(to_pred)
+            artefact_removing_scores= (artefact_removing_prob[:, 3:]).max(1) / ((artefact_removing_prob[:, :3]).max(1) + (artefact_removing_prob[:, 3:]).max(1))
+            hyp = torch.from_numpy(artefact_removing_scores < optimal_threshold).to(device) * (hyp)  # if no artefact then artefact_score<th == 1 and no change
+
+
+
         f1, sens = f1_sz_estimation(hyp, ref)
 
         add_loss_for_f1_sz_estimation = torch.where(
@@ -548,6 +572,7 @@ def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_n
             1 - f1  # Основное значение ошибки
         )
         loss = add_loss_for_f1_sz_estimation.to(device)
+
 
 
         results = {}
@@ -562,6 +587,9 @@ def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_n
         for key, value in results.items():
             metric_logger.meters[key].update(value, n=batch_size)
         # metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
+
+        # pred.append((hyp>0.5).float().cpu().numpy().tolist())
+        # true.append((target < 3).float().cpu().numpy())  # have to transform from ref to target for every second
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
@@ -606,6 +634,7 @@ def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_n
     ret['loss'] = metric_logger.loss.global_avg
     ret['f1'] = float(overall_average_f1.detach().cpu().numpy())
     ret['sensitivity'] = float(overall_average_sens.detach().cpu().numpy())
+    # ret['balanced_accuracy'] = multiclass_metrics_fn(true, pred, metrics=['balanced_accuracy'])
 
     return ret
 

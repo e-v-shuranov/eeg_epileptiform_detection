@@ -11,7 +11,7 @@
 import argparse
 import datetime
 from pyexpat import model
-import numpy as np
+# import numpy as np
 import time
 import torch
 import torch.backends.cudnn as cudnn
@@ -303,7 +303,7 @@ def get_dataset_sz_chalenge_2025_full_files(args):
     return train_dataset, test_dataset, val_dataset, standard_1020_subset, metrics
 
 
-def main(args, ds_init):
+def main(args, ds_init, XGB_model=None,optimal_threshold=0.5):
     utils.init_distributed_mode(args)
 
     if ds_init is not None:
@@ -535,7 +535,7 @@ def main(args, ds_init):
         args=args, model=model, model_without_ddp=model_without_ddp,
         optimizer=optimizer, loss_scaler=loss_scaler, model_ema=model_ema)
 
-    if False: #args.eval:
+    if True: #args.eval:
         # balanced_accuracy = []
         # accuracy = []
         # for data_loader in data_loader_test:
@@ -551,7 +551,7 @@ def main(args, ds_init):
         # print(f"======Accuracy: on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%", "ALL tests: ",
         #       test_stats)
         test_stats = evaluate_f1_sz_chalenge2025(data_loader_test[1], model, device, header='Test:', ch_names=ch_names, metrics=metrics,
-                              is_binary=(args.nb_classes == 1))
+                              is_binary=(args.nb_classes == 1), XGB_model=XGB_model,optimal_threshold=optimal_threshold)
 
         print(f"test_stats on the {len(dataset_test[1])} test EEG: ",test_stats)
 
@@ -700,4 +700,7 @@ if __name__ == '__main__':
     opts, ds_init = get_args()
     if opts.output_dir:
         Path(opts.output_dir).mkdir(parents=True, exist_ok=True)
-    main(opts, ds_init)
+    file_model = open('xgb_model_2025_4_level_GPU.pkl', 'rb')
+    xgb_clf = pickle.load(file_model)
+    optimal_threshold= 0.9834
+    main(opts, ds_init, XGB_model=xgb_clf,optimal_threshold=optimal_threshold)
