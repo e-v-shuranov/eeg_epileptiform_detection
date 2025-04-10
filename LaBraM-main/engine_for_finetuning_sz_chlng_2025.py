@@ -17,6 +17,7 @@ from timm.utils import ModelEma
 import utils
 from einops import rearrange
 import pywt
+import pickle
 from pyhealth.metrics import  multiclass_metrics_fn
 from collections import defaultdict
 
@@ -451,7 +452,7 @@ def train_one_epoch_sz_chlng_2025(model: torch.nn.Module, criterion: torch.nn.Mo
 
 
 @torch.no_grad()
-def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True):
+def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True, store_embedings = False, path_emb_pkl = "emb.pkl"):
     input_chans = None
     if ch_names is not None:
         input_chans = utils.get_input_chans(ch_names)
@@ -467,6 +468,10 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
     model.eval()
     pred = []
     true = []
+    if store_embedings:
+        emb_for_store = []
+        target_for_store = []
+
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
         # if step > 2:
         #     break
@@ -483,6 +488,10 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
             output = model(EEG, input_chans=input_chans)
             loss = criterion(output, target)
 
+        if store_embedings:
+            target_for_store.extend(target.cpu().numpy())
+            emb_for_store.extend(output.cpu().numpy())
+
         if is_binary:
             output = torch.sigmoid(output).cpu()
         else:
@@ -498,6 +507,11 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
         for key, value in results.items():
             metric_logger.meters[key].update(value, n=batch_size)
         # metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
+
+    if store_embedings:
+        with open(path_emb_pkl, 'wb') as handle:
+            pickle.dump([emb_for_store, target_for_store], handle)  # , protocol=pickle.HIGHEST_PROTOCOL)
+
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print('* loss {losses.global_avg:.3f}'
@@ -512,7 +526,7 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
 
 
 @torch.no_grad()
-def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True,max_batch_size = 100, XGB_model=None, optimal_threshold=0.5, store_embedings = False,):
+def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True,max_batch_size = 100, XGB_model=None, optimal_threshold=0.5, store_embedings = False, path_emb_pkl = "emb.pkl"):
     input_chans = None
     if ch_names is not None:
         input_chans = utils.get_input_chans(ch_names)
@@ -533,63 +547,87 @@ def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_n
     # true = []
     fs = 200
     if store_embedings:
+        signal_for_store = []
         emb_for_store = []
-        target_for_fusion = []
+        target_for_store = []
 
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
         print(batch[1])
         EEG = batch[0]
-        EEG_xgb = batch[0]
+        if XGB_model:
+            EEG_xgb = batch[0]
+            EEG_xgb = resample_tensor(EEG_xgb[0, :, :], new_freq=1)
+
         target = batch[-1].to(device)
         EEG = EEG.float().to(device, non_blocking=True) / 100
-
         start_pos = torch.tensor(0).to(device)
         end_pos = torch.tensor(batch[0].shape[2]).to(device)
         smple_5_sec = resample_tensor(EEG[0,:, :], new_freq=1)
         smple_5_sec = rearrange(smple_5_sec, 'B N (A T) -> B N A T', T=200).float().to(device, non_blocking=True)
         ref = labram_events_to_sz_events(target[0], start_pos / fs, end_pos / fs).to(device)
-        outputs = model(smple_5_sec, input_chans = input_chans)
-        hyp = (outputs.softmax(dim=1))[:, 0:3].sum(dim=1)
 
-        if XGB_model:
-            to_pred = []
-            EEG_xgb = resample_tensor(EEG_xgb[0, :, :], new_freq=1)
-            for chunk in EEG_xgb:
-                coefficients = pywt.wavedec2(chunk.numpy(), wavelet='haar', level=4)
-                X = coefficients[0]
-                to_pred.append(X.reshape(126))
+        chank_size = 2000
+        n_chankes = smple_5_sec.shape[0] // chank_size
+        all_answer = np.zeros([smple_5_sec.shape[0], 6])
 
-            artefact_removing_prob = XGB_model.predict_proba(to_pred)
-            artefact_removing_scores= (artefact_removing_prob[:, 3:]).max(1) / ((artefact_removing_prob[:, :3]).max(1) + (artefact_removing_prob[:, 3:]).max(1))
-            hyp = torch.from_numpy(artefact_removing_scores < optimal_threshold).to(device) * (hyp)  # if no artefact then artefact_score<th == 1 and no change
+        # outputs = model(smple_5_sec, input_chans = input_chans)
+        for i in range(n_chankes + 1):
+            answer = model(smple_5_sec[i*chank_size:(i+1)*chank_size,:], input_chans=input_chans)
+            hyp = (answer.softmax(dim=1))[:, 0:3].sum(dim=1)
+
+            if store_embedings:
+                fname = batch[1]
+                istart = i*chank_size
+                current_chank = smple_5_sec[i*chank_size:(i+1)*chank_size,:]
+                len_chank = current_chank.shape[0]
+                signal_for_store.extend([fname,istart,len_chank])
+                ref_mask = mask_from_events(ref, (smple_5_sec[i*chank_size:(i+1)*chank_size,:].shape[0]))
+                target_for_store.extend(ref_mask.cpu().numpy())
+                emb_for_store.extend(answer.cpu().numpy())
+
+            if XGB_model:
+                to_pred = []
+                EEG_xgb_chunk =  EEG_xgb[i*chank_size:(i+1)*chank_size]
+                for chunk in EEG_xgb_chunk:
+                    coefficients = pywt.wavedec2(chunk.numpy(), wavelet='haar', level=4)
+                    X = coefficients[0]
+                    to_pred.append(X.reshape(126))
+
+                artefact_removing_prob = XGB_model.predict_proba(to_pred)
+                artefact_removing_scores= (artefact_removing_prob[:, 3:]).max(1) / ((artefact_removing_prob[:, :3]).max(1) + (artefact_removing_prob[:, 3:]).max(1))
+                hyp = torch.from_numpy(artefact_removing_scores < optimal_threshold).to(device) * (hyp)  # if no artefact then artefact_score<th == 1 and no change
 
 
 
-        f1, sens = f1_sz_estimation(hyp, ref)
+            f1, sens = f1_sz_estimation(hyp, ref)
 
-        add_loss_for_f1_sz_estimation = torch.where(
-            torch.isnan(f1), torch.tensor(1.0, device=device),  # Штраф за отсутствие детекции
-            1 - f1  # Основное значение ошибки
-        )
-        loss = add_loss_for_f1_sz_estimation.to(device)
+            add_loss_for_f1_sz_estimation = torch.where(
+                torch.isnan(f1), torch.tensor(1.0, device=device),  # Штраф за отсутствие детекции
+                1 - f1  # Основное значение ошибки
+            )
+            loss = add_loss_for_f1_sz_estimation.to(device)
 
 
 
-        results = {}
-        results['f1'] = f1
-        results['sensitivity'] = sens
-        f1_all.append(f1)
-        f_names_all.append(batch[1][0])
-        sens_all.append(sens)
+            results = {}
+            results['f1'] = f1
+            results['sensitivity'] = sens
+            f1_all.append(f1)
+            f_names_all.append(batch[1][0])
+            sens_all.append(sens)
 
-        batch_size = EEG.shape[0]
-        metric_logger.update(loss=loss.item())
-        for key, value in results.items():
-            metric_logger.meters[key].update(value, n=batch_size)
-        # metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
+            batch_size = EEG.shape[0]
+            metric_logger.update(loss=loss.item())
+            for key, value in results.items():
+                metric_logger.meters[key].update(value, n=batch_size)
+            # metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
 
-        # pred.append((hyp>0.5).float().cpu().numpy().tolist())
-        # true.append((target < 3).float().cpu().numpy())  # have to transform from ref to target for every second
+            # pred.append((hyp>0.5).float().cpu().numpy().tolist())
+            # true.append((target < 3).float().cpu().numpy())  # have to transform from ref to target for every second
+
+    if store_embedings:
+        with open(path_emb_pkl, 'wb') as handle:
+            pickle.dump([signal_for_store,emb_for_store,target_for_store], handle) #, protocol=pickle.HIGHEST_PROTOCOL)
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()

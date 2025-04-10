@@ -545,13 +545,17 @@ def main(args, ds_init, XGB_model=None,optimal_threshold=0.5):
         #     balanced_accuracy.append(test_stats['balanced_accuracy'])
         # print(
         #     f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
+        path_for_emb_storage = "/media/public/Datasets/TUEV/tuev/edf/emb_for_xgboost_tests/emb.pkl"
 
-        # test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics,
-        #                       is_binary=(args.nb_classes == 1))
+        # test_stats = evaluate(data_loader_test[0], model, device, header='Test:', ch_names=ch_names, metrics=metrics,
+        #                       is_binary=(args.nb_classes == 1), store_embedings=True, path_emb_pkl = path_for_emb_storage)
         # print(f"======Accuracy: on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%", "ALL tests: ",
         #       test_stats)
-        test_stats = evaluate_f1_sz_chalenge2025(data_loader_test[1], model, device, header='Test:', ch_names=ch_names, metrics=metrics,
-                              is_binary=(args.nb_classes == 1), XGB_model=XGB_model,optimal_threshold=optimal_threshold)
+
+
+        test_stats = evaluate_f1_sz_chalenge2025(data_loader_test[2], model, device, header='Test:', ch_names=ch_names, metrics=metrics,
+                              is_binary=(args.nb_classes == 1), XGB_model=XGB_model,optimal_threshold=optimal_threshold,
+                                                 store_embedings=True, path_emb_pkl = path_for_emb_storage)
 
         print(f"test_stats on the {len(dataset_test[1])} test EEG: ",test_stats)
 
