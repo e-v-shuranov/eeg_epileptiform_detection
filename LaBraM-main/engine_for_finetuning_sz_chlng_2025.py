@@ -489,8 +489,8 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
             loss = criterion(output, target)
 
         if store_embedings:
-            target_for_store.extend(target.cpu().numpy())
-            emb_for_store.extend(output.cpu().numpy())
+            target_for_store.append(target.cpu().numpy())
+            emb_for_store.append(output.cpu().numpy())
 
         if is_binary:
             output = torch.sigmoid(output).cpu()
@@ -526,7 +526,7 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
 
 
 @torch.no_grad()
-def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True,max_batch_size = 100, XGB_model=None, optimal_threshold=0.5, store_embedings = False, path_emb_pkl = "emb.pkl"):
+def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True,max_batch_size = 100, XGB_model=None, optimal_threshold=0.5, store_embedings = False, path_emb_pkl = "emb.pkl",add_original=False):
     input_chans = None
     if ch_names is not None:
         input_chans = utils.get_input_chans(ch_names)
@@ -543,8 +543,9 @@ def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_n
     f1_all = []
     sens_all = []
     f_names_all = []
-    # pred = []
-    # true = []
+    if add_original:
+        pred = []
+        true = []
     fs = 200
     if store_embedings:
         signal_for_store = []
@@ -552,7 +553,7 @@ def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_n
         target_for_store = []
 
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
-        print(batch[1])
+     #   print(batch[1])
         EEG = batch[0]
         if XGB_model:
             EEG_xgb = batch[0]
@@ -563,8 +564,16 @@ def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_n
         start_pos = torch.tensor(0).to(device)
         end_pos = torch.tensor(batch[0].shape[2]).to(device)
         smple_5_sec = resample_tensor(EEG[0,:, :], new_freq=1)
+
+        if add_original:
+            smple_5_sec = EEG
+            ev = torch.tensor([0,0,5,target[0].cpu().tolist()]).to(target.device)
+            ref = labram_events_to_sz_events(ev.expand(1,4), start_pos / fs, end_pos / fs).to(device)
+          #  target[0].expand(1)
+        else:
+            ref = labram_events_to_sz_events(target[0], start_pos / fs, end_pos / fs).to(device)
+
         smple_5_sec = rearrange(smple_5_sec, 'B N (A T) -> B N A T', T=200).float().to(device, non_blocking=True)
-        ref = labram_events_to_sz_events(target[0], start_pos / fs, end_pos / fs).to(device)
 
         chank_size = 2000
         n_chankes = smple_5_sec.shape[0] // chank_size
@@ -580,10 +589,10 @@ def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_n
                 istart = i*chank_size
                 current_chank = smple_5_sec[i*chank_size:(i+1)*chank_size,:]
                 len_chank = current_chank.shape[0]
-                signal_for_store.extend([fname,istart,len_chank])
+                signal_for_store.append([fname,istart,len_chank])
                 ref_mask = mask_from_events(ref, (smple_5_sec[i*chank_size:(i+1)*chank_size,:].shape[0]))
-                target_for_store.extend(ref_mask.cpu().numpy())
-                emb_for_store.extend(answer.cpu().numpy())
+                target_for_store.append(ref_mask.cpu().numpy())
+                emb_for_store.append(answer.cpu().numpy())
 
             if XGB_model:
                 to_pred = []
@@ -613,6 +622,11 @@ def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_n
             results['f1'] = f1
             results['sensitivity'] = sens
             f1_all.append(f1)
+            if add_original:
+                output = torch.sigmoid(answer).cpu()
+                pred.append(output)
+                true.append(target.cpu())
+
             f_names_all.append(batch[1][0])
             sens_all.append(sens)
 
@@ -634,25 +648,31 @@ def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_n
     print('* loss {losses.global_avg:.3f}'
           .format(losses=metric_logger.loss))
 
+    if add_original:
+        ret = utils.get_metrics(pred, true, metrics, is_binary, 0.5)
+        return ret
+
     has_incorrect_files = False
 
     # Словарь для хранения значений F1 и Sens для корректных объектов
     grouped_f1 = {}
     grouped_sens = {}
+    if not add_original:
+        for name, f1_value, sens_value in zip(f_names_all, f1_all, sens_all):
+            try:
+                object_number = int(name.split('-')[1].split('_')[0])
+                if object_number not in grouped_f1:
+                    grouped_f1[object_number] = []
+                    grouped_sens[object_number] = []
 
-    for name, f1_value, sens_value in zip(f_names_all, f1_all, sens_all):
-        try:
-            object_number = int(name.split('-')[1].split('_')[0])
-            if object_number not in grouped_f1:
-                grouped_f1[object_number] = []
-                grouped_sens[object_number] = []
+                grouped_f1[object_number].append(f1_value)
+                grouped_sens[object_number].append(sens_value)
 
-            grouped_f1[object_number].append(f1_value)
-            grouped_sens[object_number].append(sens_value)
-
-        except (ValueError, IndexError):
-            has_incorrect_files = True
-            break
+            except (ValueError, IndexError):
+                has_incorrect_files = True
+                break
+    else:
+        has_incorrect_files = True
 
     if has_incorrect_files:
         # Если обнаружены некорректные файлы, усредняем по всем файлам

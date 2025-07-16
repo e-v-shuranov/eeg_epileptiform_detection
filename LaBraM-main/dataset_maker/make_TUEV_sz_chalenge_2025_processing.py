@@ -195,11 +195,6 @@ def convert_signals_sz_chalenge_2025_montage(signals, Rawdata):
             Rawdata.info["ch_names"], list(range(len(Rawdata.info["ch_names"])))
         )
     }
-    ch_names_after_convert = ['FP1-F7', 'F7-T3', 'T3-T5', 'T5-O1',
-                        'FP2-F8', 'F8-T4', 'T4-T6', 'T6-O2',
-                        'FP1-F3', 'F3-C3', 'C3-P3', 'P3-O1',
-                        'FP2-F4', 'F4-C4', 'C4-P4', 'P4-O2']
-
     ch_names_after_convert_sz_chalenge_2025_montage = ['FP1-Avg', 'F3-Avg', 'C3-Avg', 'P3-Avg',
                                                        'O1-Avg', 'F7-Avg', 'T3-Avg', 'T5-Avg',
                                                        'FZ-Avg', 'CZ-Avg', 'PZ-Avg', 'FP2-Avg',

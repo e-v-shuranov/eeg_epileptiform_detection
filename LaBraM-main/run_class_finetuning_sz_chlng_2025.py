@@ -33,6 +33,7 @@ from engine_for_finetuning_sz_chlng_2025 import train_one_epoch_sz_chlng_2025, e
 from utils import NativeScalerWithGradNormCount as NativeScaler
 from utils import prepare_TUEV_dataset
 import utils
+import utils_original
 from scipy import interpolate
 import modeling_finetune
 
@@ -235,6 +236,7 @@ def get_dataset(args):
         args.nb_classes = 1
         metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
     elif True:  # args.dataset == 'TUEV':   # we have only TUEV for finetune  labram classes
+
         train_dataset, test_dataset, val_dataset = prepare_TUEV_dataset("/media/public/Datasets/TUEV/tuev/edf/processed_sz_chalenge_2025_montage")
         ch_names_after_convert_sz_chalenge_2025_montage = ['FP1-Avg', 'F3-Avg', 'C3-Avg', 'P3-Avg',
                                                            'O1-Avg', 'F7-Avg', 'T3-Avg', 'T5-Avg',
@@ -302,6 +304,15 @@ def get_dataset_sz_chalenge_2025_full_files(args):
 
     return train_dataset, test_dataset, val_dataset, standard_1020_subset, metrics
 
+def get_dataset_original(args):
+    train_dataset, test_dataset, val_dataset = utils_original.prepare_TUEV_dataset("/media/public/Datasets/labram_data/TUEV/processed")
+    ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
+                'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
+    ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
+    args.nb_classes = 6
+    metrics = ["accuracy", "balanced_accuracy", "cohen_kappa", "f1_weighted"]
+    return train_dataset, test_dataset, val_dataset, ch_names[:16], metrics   # CBRamod_compare
+
 
 def main(args, ds_init, XGB_model=None,optimal_threshold=0.5):
     utils.init_distributed_mode(args)
@@ -326,8 +337,13 @@ def main(args, ds_init, XGB_model=None,optimal_threshold=0.5):
     # metrics: list of strings, the metrics you want to use. We utilize PyHealth to implement it.
     dataset_train, dataset_test, dataset_val, ch_names, metrics = get_dataset(args)
     dataset_train_sz_chalenge_2025_full_files, dataset_test_sz_chalenge_2025_full_files, dataset_val_sz_chalenge_2025_full_files, ch_names_sz_chalenge_2025_full_files, metrics_sz_chalenge_2025_full_files = get_dataset_sz_chalenge_2025_full_files(args)
-
     dataset_test = [dataset_test,dataset_test_sz_chalenge_2025_full_files,dataset_val_sz_chalenge_2025_full_files]
+
+    add_original = True
+    if add_original:
+        dataset_train_original, dataset_test_original, dataset_val_original, ch_names_original, metrics_original = get_dataset_original(args)
+        dataset_test = [dataset_train_original,dataset_test_original,dataset_val_original,dataset_test,dataset_test_sz_chalenge_2025_full_files,dataset_val_sz_chalenge_2025_full_files]
+
     if args.disable_eval_during_finetuning:
         dataset_val = None
         dataset_test = None
@@ -546,14 +562,22 @@ def main(args, ds_init, XGB_model=None,optimal_threshold=0.5):
         # print(
         #     f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
         path_for_emb_storage = "/media/public/Datasets/TUEV/tuev/edf/emb_for_xgboost_tests/emb.pkl"
+        if add_original:
+            test_stats = evaluate_f1_sz_chalenge2025(data_loader_test[0], model, device, header='Test:',
+                                                     ch_names=ch_names_original, metrics=metrics_original,
+                                                     is_binary=(args.nb_classes == 1),
+                                                     optimal_threshold=optimal_threshold,
+                                                     store_embedings=True, path_emb_pkl=path_for_emb_storage, add_original=add_original)
+            print(f"test_stats on the {len(dataset_test[0])} test EEG: ", test_stats)
+            exit(0)
 
-        # test_stats = evaluate(data_loader_test[0], model, device, header='Test:', ch_names=ch_names, metrics=metrics,
-        #                       is_binary=(args.nb_classes == 1), store_embedings=True, path_emb_pkl = path_for_emb_storage)
+     #   test_stats = evaluate(data_loader_test[0], model, device, header='Test:', ch_names=ch_names, metrics=metrics,
+     #                         is_binary=(args.nb_classes == 1), store_embedings=True, path_emb_pkl = path_for_emb_storage)
         # print(f"======Accuracy: on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%", "ALL tests: ",
         #       test_stats)
 
 
-        test_stats = evaluate_f1_sz_chalenge2025(data_loader_test[2], model, device, header='Test:', ch_names=ch_names, metrics=metrics,
+        test_stats = evaluate_f1_sz_chalenge2025(data_loader_test[1], model, device, header='Test:', ch_names=ch_names, metrics=metrics,
                               is_binary=(args.nb_classes == 1), XGB_model=XGB_model,optimal_threshold=optimal_threshold,
                                                  store_embedings=True, path_emb_pkl = path_for_emb_storage)
 

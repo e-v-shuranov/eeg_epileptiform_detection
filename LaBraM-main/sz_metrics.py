@@ -392,7 +392,8 @@ def f1_sz_estimation(hyp, ref_event):
 def mask_from_events(events, num_seconds):
     # Создаем пустую маску длиной num_seconds
     mask = torch.zeros(num_seconds).to(events.device)
-
+    if len(events)==0:
+        return mask
     start_times = events[:,0]
     end_times = events[:,1]
 
