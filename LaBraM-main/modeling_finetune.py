@@ -396,8 +396,9 @@ class NeuralTransformer(nn.Module):
         For example, for an EEG sample of 4 seconds with 64 electrodes, x will be [batch size, 64, 4, 200]
         '''
         x = self.forward_features(x, input_chans=input_chans, return_patch_tokens=return_patch_tokens, return_all_tokens=return_all_tokens, **kwargs)
+        y = x.clone().detach()  # shuranov tmp, for emb testing
         x = self.head(x)
-        return x
+        return x, y
 
     def forward_intermediate(self, x, layer_id=12, norm_output=False):
         x = self.patch_embed(x)

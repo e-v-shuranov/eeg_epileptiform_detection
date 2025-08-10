@@ -26,9 +26,9 @@ from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
 from timm.utils import ModelEma
 from optim_factory import create_optimizer, get_parameter_groups, LayerDecayValueAssigner
 
-from engine_for_finetuning_original import train_one_epoch, evaluate
-from utils_original import NativeScalerWithGradNormCount as NativeScaler
-import utils_original
+from engine_for_finetuning_multidata import train_one_epoch, evaluate
+from utils_multidata import NativeScalerWithGradNormCount as NativeScaler
+import utils_multidata
 from scipy import interpolate
 import modeling_finetune
 
@@ -212,19 +212,19 @@ def get_models(args):
 
 def get_dataset(args):
     if args.dataset == 'TUAB':
-        train_dataset, test_dataset, val_dataset = utils_original.prepare_TUAB_dataset("path/to/TUAB")
+        train_dataset, test_dataset, val_dataset = utils_multidata.prepare_TUAB_dataset("path/to/TUAB")
         ch_names = ['EEG FP1', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
                     'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
         ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
         args.nb_classes = 1
         metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
     elif args.dataset == 'TUEV':
-        train_dataset, test_dataset, val_dataset = utils_original.prepare_TUEV_dataset("/media/public/Datasets/labram_data/TUEV/processed")
+        train_dataset, test_dataset, val_dataset = utils_multidata.prepare_TUEV_dataset("/media/public/Datasets/labram_data/TUEV/processed")
         ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
                     'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
         ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
         #
-        # train_dataset, test_dataset, val_dataset = utils_original.prepare_TUEV_dataset(
+        # train_dataset, test_dataset, val_dataset = utils_multidata.prepare_TUEV_dataset(
         #     "/media/public/Datasets/cbramod_data/TURV_refine/processed")
         # ch_names = [
         #     "FP1-F7",
@@ -251,17 +251,17 @@ def get_dataset(args):
 
 
 def main(args, ds_init):
-    utils_original.init_distributed_mode(args)
+    utils_multidata.init_distributed_mode(args)
 
     if ds_init is not None:
-        utils_original.create_ds_config(args)
+        utils_multidata.create_ds_config(args)
 
     print(args)
 
     device = torch.device(args.device)
 
     # fix the seed for reproducibility
-    seed = args.seed + utils_original.get_rank()
+    seed = args.seed + utils_multidata.get_rank()
     torch.manual_seed(seed)
     np.random.seed(seed)
     # random.seed(seed)
@@ -278,8 +278,8 @@ def main(args, ds_init):
         dataset_test = None
 
     if True:  # args.distributed:
-        num_tasks = utils_original.get_world_size()
-        global_rank = utils_original.get_rank()
+        num_tasks = utils_multidata.get_world_size()
+        global_rank = utils_multidata.get_rank()
         sampler_train = torch.utils.data.DistributedSampler(
             dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
         )
@@ -306,7 +306,7 @@ def main(args, ds_init):
 
     if global_rank == 0 and args.log_dir is not None:
         os.makedirs(args.log_dir, exist_ok=True)
-        log_writer = utils_original.TensorboardLogger(log_dir=args.log_dir)
+        log_writer = utils_multidata.TensorboardLogger(log_dir=args.log_dir)
     else:
         log_writer = None
 
@@ -390,7 +390,7 @@ def main(args, ds_init):
             if "relative_position_index" in key:
                 checkpoint_model.pop(key)
 
-        utils_original.load_state_dict(model, checkpoint_model, prefix=args.model_prefix)
+        utils_multidata.load_state_dict(model, checkpoint_model, prefix=args.model_prefix)
 
     model.to(device)
 
@@ -410,7 +410,7 @@ def main(args, ds_init):
     print("Model = %s" % str(model_without_ddp))
     print('number of params:', n_parameters)
 
-    total_batch_size = args.batch_size * args.update_freq * utils_original.get_world_size()
+    total_batch_size = args.batch_size * args.update_freq * utils_multidata.get_world_size()
     num_training_steps_per_epoch = len(dataset_train) // total_batch_size
     print("LR = %.8f" % args.lr)
     print("Batch size = %d" % total_batch_size)
@@ -456,13 +456,13 @@ def main(args, ds_init):
         loss_scaler = NativeScaler()
 
     print("Use step level LR scheduler!")
-    lr_schedule_values = utils_original.cosine_scheduler(
+    lr_schedule_values = utils_multidata.cosine_scheduler(
         args.lr, args.min_lr, args.epochs, num_training_steps_per_epoch,
         warmup_epochs=args.warmup_epochs, warmup_steps=args.warmup_steps,
     )
     if args.weight_decay_end is None:
         args.weight_decay_end = args.weight_decay
-    wd_schedule_values = utils_original.cosine_scheduler(
+    wd_schedule_values = utils_multidata.cosine_scheduler(
         args.weight_decay, args.weight_decay_end, args.epochs, num_training_steps_per_epoch)
     print("Max WD = %.7f, Min WD = %.7f" % (max(wd_schedule_values), min(wd_schedule_values)))
 
@@ -475,7 +475,7 @@ def main(args, ds_init):
 
     print("criterion = %s" % str(criterion))
 
-    utils_original.auto_load_model(
+    utils_multidata.auto_load_model(
         args=args, model=model, model_without_ddp=model_without_ddp,
         optimizer=optimizer, loss_scaler=loss_scaler, model_ema=model_ema)
             
@@ -508,7 +508,7 @@ def main(args, ds_init):
         )
         
         if args.output_dir and args.save_ckpt:
-            utils_original.save_model(
+            utils_multidata.save_model(
                 args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                 loss_scaler=loss_scaler, epoch=epoch, model_ema=model_ema, save_ckpt_freq=args.save_ckpt_freq)
             
@@ -521,7 +521,7 @@ def main(args, ds_init):
             if max_accuracy < val_stats["accuracy"]:
                 max_accuracy = val_stats["accuracy"]
                 if args.output_dir and args.save_ckpt:
-                    utils_original.save_model(
+                    utils_multidata.save_model(
                         args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                         loss_scaler=loss_scaler, epoch="best", model_ema=model_ema)
                 max_accuracy_test = test_stats["accuracy"]
@@ -569,7 +569,7 @@ def main(args, ds_init):
                          'epoch': epoch,
                          'n_parameters': n_parameters}
 
-        if args.output_dir and utils_original.is_main_process():
+        if args.output_dir and utils_multidata.is_main_process():
             if log_writer is not None:
                 log_writer.flush()
             with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:

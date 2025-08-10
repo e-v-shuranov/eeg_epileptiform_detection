@@ -190,7 +190,7 @@ TUEV dataset is downloaded from https://isip.piconepress.com/projects/tuh_eeg/ht
 # root = "/userhome1/jiangweibang/Datasets/TUH_Event/v2.0.0/edf"
 root = "/media/public/Datasets/TUEV/tuev/edf"
 
-train_out_dir = os.path.join(root, "processed_train")
+train_out_dir = os.path.join(root, "processed_train1")
 eval_out_dir = os.path.join(root, "processed_eval")
 if not os.path.exists(train_out_dir):
     os.makedirs(train_out_dir)

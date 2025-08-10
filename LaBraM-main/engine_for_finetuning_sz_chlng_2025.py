@@ -581,7 +581,7 @@ def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_n
 
         # outputs = model(smple_5_sec, input_chans = input_chans)
         for i in range(n_chankes + 1):
-            answer = model(smple_5_sec[i*chank_size:(i+1)*chank_size,:], input_chans=input_chans)
+            answer, emb = model(smple_5_sec[i*chank_size:(i+1)*chank_size,:], input_chans=input_chans)
             hyp = (answer.softmax(dim=1))[:, 0:3].sum(dim=1)
 
             if store_embedings:
@@ -592,7 +592,7 @@ def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_n
                 signal_for_store.append([fname,istart,len_chank])
                 ref_mask = mask_from_events(ref, (smple_5_sec[i*chank_size:(i+1)*chank_size,:].shape[0]))
                 target_for_store.append(ref_mask.cpu().numpy())
-                emb_for_store.append(answer.cpu().numpy())
+                emb_for_store.append([answer.cpu().numpy(),emb.cpu().numpy()])
 
             if XGB_model:
                 to_pred = []
@@ -638,7 +638,7 @@ def evaluate_f1_sz_chalenge2025(data_loader, model, device, header='Test:', ch_n
 
             # pred.append((hyp>0.5).float().cpu().numpy().tolist())
             # true.append((target < 3).float().cpu().numpy())  # have to transform from ref to target for every second
-
+       # break
     if store_embedings:
         with open(path_emb_pkl, 'wb') as handle:
             pickle.dump([signal_for_store,emb_for_store,target_for_store], handle) #, protocol=pickle.HIGHEST_PROTOCOL)

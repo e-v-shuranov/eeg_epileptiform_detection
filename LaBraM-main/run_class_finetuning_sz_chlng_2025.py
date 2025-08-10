@@ -311,7 +311,7 @@ def get_dataset_original(args):
     ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
     args.nb_classes = 6
     metrics = ["accuracy", "balanced_accuracy", "cohen_kappa", "f1_weighted"]
-    return train_dataset, test_dataset, val_dataset, ch_names[:16], metrics   # CBRamod_compare
+    return train_dataset, test_dataset, val_dataset, ch_names, metrics
 
 
 def main(args, ds_init, XGB_model=None,optimal_threshold=0.5):
@@ -563,7 +563,7 @@ def main(args, ds_init, XGB_model=None,optimal_threshold=0.5):
         #     f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
         path_for_emb_storage = "/media/public/Datasets/TUEV/tuev/edf/emb_for_xgboost_tests/emb.pkl"
         if add_original:
-            test_stats = evaluate_f1_sz_chalenge2025(data_loader_test[0], model, device, header='Test:',
+            test_stats = evaluate_f1_sz_chalenge2025(data_loader_test[1], model, device, header='Test:',
                                                      ch_names=ch_names_original, metrics=metrics_original,
                                                      is_binary=(args.nb_classes == 1),
                                                      optimal_threshold=optimal_threshold,

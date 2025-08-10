@@ -1,0 +1,44 @@
+TUEV (run original)
+
+--output_dir ./checkpoints/finetune_tuev_original/
+--log_dir ./log/finetune_tuev_original
+--model labram_base_patch200_200
+--finetune ./checkpoints/labram-base.pth
+--weight_decay 0.05
+--batch_size 64
+--lr 5e-6
+--update_freq 1
+--warmup_epochs 3
+--epochs 100
+--layer_decay 0.65
+--drop_path 0.1
+--dist_eval
+--save_ckpt_freq 5
+--disable_rel_pos_bias
+--abs_pos_emb
+--dataset TUEV
+--disable_qkv_bias
+--seed 0
+
+
+Mumtaz2016
+
+--output_dir ./checkpoints/finetune_Mumtaz/
+--log_dir ./log/finetune_Mumtaz
+--model labram_base_patch200_200
+--finetune ./checkpoints/labram-base.pth
+--weight_decay 0.05
+--batch_size 64
+--lr 5e-6
+--update_freq 1
+--warmup_epochs 3
+--epochs 100
+--layer_decay 0.65
+--drop_path 0.1
+--dist_eval
+--save_ckpt_freq 5
+--disable_rel_pos_bias
+--abs_pos_emb
+--dataset Mumtaz
+--disable_qkv_bias
+--seed 0
