@@ -412,7 +412,7 @@ def train_one_epoch_sz_chlng_2025(model: torch.nn.Module, criterion: torch.nn.Mo
 
         if is_binary:
             class_acc = utils.get_metrics(torch.sigmoid(output).detach().cpu().numpy(), targets.detach().cpu().numpy(),
-                                          ["accuracy"], is_binary)["accuracy"]
+                                              ["accuracy"], is_binary)["accuracy"]
         else:
             class_acc = (output.max(-1)[-1] == targets.squeeze()).float().mean()
 

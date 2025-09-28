@@ -398,7 +398,7 @@ def evaluate_for_mbt_binary_scenario(data_loader, model, device, header='Test:',
 
 
         results = utils.get_metrics(output.numpy(), target.numpy(), metrics,
-                                    (is_binary or is_mbt))
+                                        (is_binary or is_mbt))
 
         pred.append(output)
         true.append(target)

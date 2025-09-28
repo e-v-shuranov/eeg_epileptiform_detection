@@ -32,6 +32,9 @@ import utils_multidata
 from scipy import interpolate
 import modeling_finetune
 
+from datasets import faced_dataset, seedv_dataset, physio_dataset, shu_dataset, isruc_dataset, chb_dataset, \
+    speech_dataset, mumtaz_dataset, seedvig_dataset, stress_dataset, tuev_dataset, tuab_dataset, bciciv2a_dataset
+
 def get_args():
     parser = argparse.ArgumentParser('LaBraM fine-tuning and evaluation script for EEG classification', add_help=False)
     parser.add_argument('--batch_size', default=64, type=int)
@@ -135,6 +138,11 @@ def get_args():
 
     parser.add_argument('--output_dir', default='',
                         help='path where to save, empty for no saving')
+    parser.add_argument('--datasets_dir', default='',
+                        help='path to dataset for finetune and test in multidata (multi downstream tasks) experiments')
+    parser.add_argument('--fixed_chkpt', default='',
+                        help='path for fixed checkpoint for evaluation or continue')
+
     parser.add_argument('--log_dir', default=None,
                         help='path where to tensorboard log')
     parser.add_argument('--device', default='cuda',
@@ -211,6 +219,7 @@ def get_models(args):
 
 
 def get_dataset(args):
+
     if args.dataset == 'TUAB':
         train_dataset, test_dataset, val_dataset = utils_multidata.prepare_TUAB_dataset("path/to/TUAB")
         ch_names = ['EEG FP1', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
@@ -223,30 +232,91 @@ def get_dataset(args):
         ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
                     'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
         ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
-        #
-        # train_dataset, test_dataset, val_dataset = utils_multidata.prepare_TUEV_dataset(
-        #     "/media/public/Datasets/cbramod_data/TURV_refine/processed")
-        # ch_names = [
-        #     "FP1-F7",
-        #     "F7-T7",
-        #     "T7-P7",
-        #     "P7-O1",
-        #     "FP2-F8",
-        #     "F8-T8",
-        #     "T8-P8",
-        #     "P8-O2",
-        #     "FP1-F3",
-        #     "F3-C3",
-        #     "C3-P3",
-        #     "P3-O1",
-        #     "FP2-F4",
-        #     "F4-C4",
-        #     "C4-P4",
-        #     "P4-O2",
-        # ]
-
         args.nb_classes = 6
         metrics = ["accuracy", "balanced_accuracy", "cohen_kappa", "f1_weighted"]
+    elif args.dataset == 'Mumtaz':
+        load_dataset = mumtaz_dataset.LoadDataset(args)
+        train_dataset, val_dataset, test_dataset = load_dataset.get_data_loader()
+        ch_names = ['EEG Fp1-LE', 'EEG Fp2-LE', 'EEG F3-LE', 'EEG F4-LE', 'EEG C3-LE', 'EEG C4-LE', 'EEG P3-LE',
+                     'EEG P4-LE', 'EEG O1-LE', 'EEG O2-LE', 'EEG F7-LE', 'EEG F8-LE', 'EEG T3-LE', 'EEG T4-LE',
+                     'EEG T5-LE', 'EEG T6-LE', 'EEG Fz-LE', 'EEG Cz-LE', 'EEG Pz-LE']
+
+        ch_names = [x.upper() for x in ch_names]
+        ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
+        args.nb_classes = 1
+        metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
+    elif args.dataset == 'ISRUC':
+        load_dataset = isruc_dataset.LoadDataset(args)
+        train_dataset, val_dataset, test_dataset = load_dataset.get_data_loader()
+        #F3-A2, C3-A2, O1-A2, F4-A1, C4-A1, O2-A1
+        ch_names = ['F3', 'C3', 'O1', 'F4', 'C4', 'O2']
+
+        args.nb_classes = 5
+        metrics = ["accuracy", "balanced_accuracy", "cohen_kappa", "f1_weighted"]
+    elif args.dataset == 'FACED':
+        load_dataset = faced_dataset.LoadDataset(args)
+        train_dataset, val_dataset, test_dataset = load_dataset.get_data_loader()
+        #F3-A2, C3-A2, O1-A2, F4-A1, C4-A1, O2-A1
+       # ch_names = ['F3', 'C3', 'O1', 'F4', 'C4', 'O2']
+        ch_names_original = [
+            "Cz",
+            "CP1",
+            "C4",
+            "Pz",
+            "O1",
+            "Fp1",
+            "CP6",
+            "O2",
+            "CP2",
+            "P8",
+            "C3",
+            "P7",
+            "Fp2",
+            "F8",
+            "CP5",
+            "F7",
+            "HEOL",
+            "FC5",
+            "HEOR",
+            "P4",
+            "T7",
+            "F3",
+            "T8",
+            "FC2",
+            "PO4",
+            "FC6",
+            "P3",
+            "PO3",
+            "Oz",
+            "F4",
+            "FC1",
+            "Fz"
+        ]
+        ch_names_original = ch_names_original[:16] + ch_names_original[17:18] + ch_names_original[19:]
+        ch_names = [word.upper() for word in ch_names_original]
+        args.nb_classes = 9
+        metrics = ["accuracy", "balanced_accuracy", "cohen_kappa", "f1_weighted"]
+    elif args.dataset == 'PHYSIO':
+        load_dataset = physio_dataset.LoadDataset(args)
+        train_dataset, val_dataset, test_dataset = load_dataset.get_data_loader()
+        selected_channels = ['Fc5.', 'Fc3.', 'Fc1.', 'Fcz.', 'Fc2.', 'Fc4.', 'Fc6.', 'C5..', 'C3..', 'C1..', 'Cz..',
+                             'C2..',
+                             'C4..', 'C6..', 'Cp5.', 'Cp3.', 'Cp1.', 'Cpz.', 'Cp2.', 'Cp4.', 'Cp6.', 'Fp1.', 'Fpz.',
+                             'Fp2.',
+                             'Af7.', 'Af3.', 'Afz.', 'Af4.', 'Af8.', 'F7..', 'F5..', 'F3..', 'F1..', 'Fz..', 'F2..',
+                             'F4..',
+                             'F6..', 'F8..', 'Ft7.', 'Ft8.', 'T7..', 'T8..', 'T9..', 'T10.', 'Tp7.', 'Tp8.', 'P7..',
+                             'P5..',
+                             'P3..', 'P1..', 'Pz..', 'P2..', 'P4..', 'P6..', 'P8..', 'Po7.', 'Po3.', 'Poz.', 'Po4.',
+                             'Po8.',
+                             'O1..', 'Oz..', 'O2..', 'Iz..']
+        new_list = [s.replace(".", "") for s in selected_channels]
+        ch_names = [word.upper() for word in new_list]
+
+
+        args.nb_classes = 4
+        metrics = ["accuracy", "balanced_accuracy", "cohen_kappa", "f1_weighted"]
+
     return train_dataset, test_dataset, val_dataset, ch_names, metrics
 
 
@@ -478,21 +548,39 @@ def main(args, ds_init):
     utils_multidata.auto_load_model(
         args=args, model=model, model_without_ddp=model_without_ddp,
         optimizer=optimizer, loss_scaler=loss_scaler, model_ema=model_ema)
-            
+    if (args.dataset == 'Mumtaz' or args.dataset == 'FACED' or args.dataset == 'SEED-V' or
+            args.dataset == 'PHYSIO' or args.dataset == 'SHU-MI' or args.dataset == 'ISRUC' or
+            args.dataset == 'CHB-MIT' or args.dataset == 'BCIC2020-3' or args.dataset == 'SEED-VIG' or
+            args.dataset == 'MentalArithmetic' or args.dataset == 'BCIC-IV-2a'):
+        dataloadertype = 'CBRamode'
+    else:
+        dataloadertype = ''
     if args.eval:
         balanced_accuracy = []
         accuracy = []
-        for data_loader in data_loader_test:
-            test_stats = evaluate(data_loader, model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=(args.nb_classes == 1))
-            accuracy.append(test_stats['accuracy'])
-            balanced_accuracy.append(test_stats['balanced_accuracy'])
-        print(f"======Accuracy: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
+        # for data_loader in data_loader_test:
+        #     test_stats = evaluate(data_loader, model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=(args.nb_classes == 1), dataloadertype=dataloadertype)
+        #     accuracy.append(test_stats['accuracy'])
+        #     balanced_accuracy.append(test_stats['balanced_accuracy'])
+
+        test_stats = evaluate(data_loader_val, model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=(args.nb_classes == 1), dataloadertype=dataloadertype)
+        accuracy.append(test_stats['accuracy'])
+        balanced_accuracy.append(test_stats['balanced_accuracy'])
+        print(f"======Accuracy val : {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
+        balanced_accuracy = []
+        accuracy = []
+        test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=(args.nb_classes == 1), dataloadertype=dataloadertype)
+        accuracy.append(test_stats['accuracy'])
+        balanced_accuracy.append(test_stats['balanced_accuracy'])
+        print(f"======Accuracy test: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
         exit(0)
 
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
     max_accuracy = 0.0
     max_accuracy_test = 0.0
+    max_balanced_accuracy = 0.0
+    max_balanced_accuracy_test = 0.0
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             data_loader_train.sampler.set_epoch(epoch)
@@ -504,18 +592,18 @@ def main(args, ds_init):
             log_writer=log_writer, start_steps=epoch * num_training_steps_per_epoch,
             lr_schedule_values=lr_schedule_values, wd_schedule_values=wd_schedule_values,
             num_training_steps_per_epoch=num_training_steps_per_epoch, update_freq=args.update_freq, 
-            ch_names=ch_names, is_binary=args.nb_classes == 1
+            ch_names=ch_names, is_binary=args.nb_classes == 1, dataloadertype=dataloadertype
         )
-        
+
         if args.output_dir and args.save_ckpt:
             utils_multidata.save_model(
                 args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                 loss_scaler=loss_scaler, epoch=epoch, model_ema=model_ema, save_ckpt_freq=args.save_ckpt_freq)
             
         if data_loader_val is not None:
-            val_stats = evaluate(data_loader_val, model, device, header='Val:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1)
+            val_stats = evaluate(data_loader_val, model, device, header='Val:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1,dataloadertype=dataloadertype)
             print(f"Accuracy of the network on the {len(dataset_val)} val EEG: {val_stats['accuracy']:.2f}%")
-            test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1)
+            test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1, dataloadertype=dataloadertype)
             print(f"Accuracy of the network on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%")
             
             if max_accuracy < val_stats["accuracy"]:
@@ -525,8 +613,10 @@ def main(args, ds_init):
                         args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                         loss_scaler=loss_scaler, epoch="best", model_ema=model_ema)
                 max_accuracy_test = test_stats["accuracy"]
+                max_balanced_accuracy = val_stats["balanced_accuracy"]
+                max_balanced_accuracy_test = test_stats["balanced_accuracy"]
 
-            print(f'Max accuracy val: {max_accuracy:.2f}%, max accuracy test: {max_accuracy_test:.2f}%')
+            print(f'Max accuracy val: {max_accuracy:.2f}%, balanced_accuracy:{max_balanced_accuracy:.2f}%, accuracy test: {max_accuracy_test:.2f}% balanced_accuracy test: {max_balanced_accuracy_test:.2f}%')
             if log_writer is not None:
                 for key, value in val_stats.items():
                     if key == 'accuracy':
@@ -581,6 +671,12 @@ def main(args, ds_init):
 
 
 if __name__ == '__main__':
+    import torch.multiprocessing as mp
+    try:
+        mp.set_start_method("spawn", force=True)
+    except RuntimeError:
+        pass  # метод уже установлен
+
     opts, ds_init = get_args()
     if opts.output_dir:
         Path(opts.output_dir).mkdir(parents=True, exist_ok=True)
