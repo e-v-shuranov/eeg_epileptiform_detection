@@ -380,13 +380,29 @@ def main(args, ds_init):
     else:
         log_writer = None
 
+    # def _worker_init_fn(_):
+    #     # на случай, если захотите что-то явно сбрасывать в датасете
+    #     pass
+
     data_loader_train = torch.utils.data.DataLoader(
         dataset_train, sampler=sampler_train,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         pin_memory=args.pin_mem,
         drop_last=True,
+        persistent_workers=False,  # Критично: не держим воркеров «липкими»
+        prefetch_factor=2,
+        # worker_init_fn=_worker_init_fn
     )
+
+
+    # data_loader_train = torch.utils.data.DataLoader(
+    #     dataset_train, sampler=sampler_train,
+    #     batch_size=args.batch_size,
+    #     num_workers=args.num_workers,
+    #     pin_memory=args.pin_mem,
+    #     drop_last=True,
+    # )
 
     if dataset_val is not None:
         data_loader_val = torch.utils.data.DataLoader(
@@ -394,7 +410,10 @@ def main(args, ds_init):
             batch_size=int(1.5 * args.batch_size),
             num_workers=args.num_workers,
             pin_memory=args.pin_mem,
-            drop_last=False
+            drop_last=False,
+            persistent_workers=False,  # Критично: не держим воркеров «липкими»
+            prefetch_factor=2,
+            # worker_init_fn=_worker_init_fn
         )
         if type(dataset_test) == list:
             data_loader_test = [torch.utils.data.DataLoader(
@@ -402,7 +421,10 @@ def main(args, ds_init):
                 batch_size=int(1.5 * args.batch_size),
                 num_workers=args.num_workers,
                 pin_memory=args.pin_mem,
-                drop_last=False
+                drop_last=False,
+                persistent_workers = False,  # Критично: не держим воркеров «липкими»
+                prefetch_factor = 2,
+                # worker_init_fn = _worker_init_fn
             ) for dataset, sampler in zip(dataset_test, sampler_test)]
         else:
             data_loader_test = torch.utils.data.DataLoader(
@@ -410,7 +432,10 @@ def main(args, ds_init):
                 batch_size=int(1.5 * args.batch_size),
                 num_workers=args.num_workers,
                 pin_memory=args.pin_mem,
-                drop_last=False
+                drop_last=False,
+                persistent_workers = False,  # Критично: не держим воркеров «липкими»
+                prefetch_factor = 2,
+                # worker_init_fn = _worker_init_fn
             )
     else:
         data_loader_val = None
