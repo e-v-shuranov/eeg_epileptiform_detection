@@ -184,10 +184,10 @@ new PHYSIO
 --finetune ./checkpoints/labram-base.pth
 --weight_decay 0.05
 --batch_size 64
---lr 5e-6
+--lr 5e-5
 --update_freq 1
 --warmup_epochs 3
---epochs 30
+--epochs 100
 --layer_decay 0.65
 --drop_path 0.1
 --dist_eval
@@ -198,6 +198,8 @@ new PHYSIO
 --disable_qkv_bias
 --seed 0
 --datasets_dir /media/public/Datasets/cbramod_data/PHYSIO/processed_average
+
+#debug
 --num_workers 0
 --no_pin_mem
 
@@ -223,3 +225,56 @@ new Mumtaz
 --disable_qkv_bias
 --seed 0
 --datasets_dir /media/public/Datasets/cbramod_data/MDDPHCED/processed_lmdb_75hz
+
+
+
+
+new dataset PHYSIO
+
+--output_dir ./checkpoints/finetune_PHYSIO_new/
+--log_dir ./log/finetune_PHYSIO_new
+--model labram_base_patch200_200
+--finetune ./checkpoints/labram-base.pth
+--weight_decay 0.05
+--batch_size 64
+--lr 5e-4
+--update_freq 1
+--warmup_epochs 3
+--epochs 30
+--layer_decay 0.65
+--drop_path 0.1
+--dist_eval
+--save_ckpt_freq 5
+--disable_rel_pos_bias
+--abs_pos_emb
+--dataset PHYSIO
+--disable_qkv_bias
+--seed 0
+--datasets_dir /media/public/Datasets/cbramod_data/PHYSIO_NEW/processed_average
+
+
+
+
+Face one more try
+--output_dir ./checkpoints/finetune_FACED_v3/
+--log_dir ./log/finetune_FACED_v3
+--model labram_base_patch200_200
+--finetune ./checkpoints/labram-base.pth
+--weight_decay 0.05
+--batch_size 32
+--lr 3e-4
+--update_freq 1
+--warmup_epochs 3
+--epochs 100
+--layer_decay 0.65
+--drop_path 0.1
+--dist_eval
+--save_ckpt_freq 5
+--disable_rel_pos_bias
+--abs_pos_emb
+--dataset FACED
+--disable_qkv_bias
+--seed 0
+--datasets_dir /media/public/Datasets/cbramod_data/FACED/processed
+--num_workers 0
+--no_pin_mem

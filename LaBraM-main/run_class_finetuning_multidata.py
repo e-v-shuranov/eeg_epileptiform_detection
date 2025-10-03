@@ -319,6 +319,139 @@ def get_dataset(args):
 
     return train_dataset, test_dataset, val_dataset, ch_names, metrics
 
+# --- Dataset sanity check: NaN/Inf scan + class balance ----------------------
+from collections import Counter, defaultdict
+import numpy as np
+import torch
+
+def _extract_xy(sample):
+    """
+    Универсально достаёт (X, y) из sample для разных датасетов.
+    Возвращает: X (np.ndarray|Tensor), y (int|None), meta (исходный sample)
+    """
+    X = None
+    y = None
+
+    if isinstance(sample, (list, tuple)):
+        # X — первый тензор/массив с ndim >= 2
+        for el in sample:
+            if X is None and isinstance(el, (np.ndarray, torch.Tensor)) and getattr(el, "ndim", 0) >= 2:
+                X = el
+        # y — последнее скалярное/1-элементное значение
+        for el in reversed(sample):
+            if isinstance(el, (int, np.integer)):
+                y = int(el)
+                break
+            if isinstance(el, (np.ndarray, torch.Tensor)) and np.prod(getattr(el, "shape", ())) == 1:
+                y = int(el.item())
+                break
+        return X, y, sample
+    else:
+        # sample уже (X,?) — используем как есть
+        X = sample
+        return X, y, sample
+
+
+def _to_tensor_float(x):
+    if isinstance(x, torch.Tensor):
+        return x.detach().float()
+    elif isinstance(x, np.ndarray):
+        return torch.from_numpy(x).float()
+    else:
+        # непредвидимый тип — перевести не можем
+        return None
+
+
+def sanity_check_splits(
+    datasets_dict,
+    nb_classes=None,
+    max_items_per_split=None,  # можно ограничить для быстрого прогона; None = все
+    verbose=True,
+):
+    """
+    datasets_dict: {'train': dataset_train, 'val': dataset_val, 'test': dataset_test}
+    nb_classes: если известно (args.nb_classes), проверим попадание меток в диапазон [0, nb_classes-1]
+    """
+    summary = {}
+
+    for split_name, ds in datasets_dict.items():
+        if ds is None:
+            summary[split_name] = {"size": 0, "nan": 0, "inf": 0, "bad_samples": [], "class_counts": {}}
+            continue
+
+        n = len(ds)
+        limit = n if max_items_per_split is None else min(n, max_items_per_split)
+
+        nan_total = 0
+        inf_total = 0
+        bad_samples = []  # индексы сэмплов, в которых встретились NaN/Inf
+        class_counter = Counter()
+        out_of_range_labels = defaultdict(int)
+
+        for idx in range(limit):
+            try:
+                sample = ds[idx]
+            except Exception as e:
+                # если не удалось прочитать — считаем как «битый»
+                bad_samples.append((idx, f"read_error: {e}"))
+                continue
+
+            X, y, _meta = _extract_xy(sample)
+            xt = _to_tensor_float(X)
+            if xt is None:
+                bad_samples.append((idx, "unsupported_X_type"))
+                continue
+
+            # считаем NaN/Inf на уровне одного сэмпла
+            n_nan = torch.isnan(xt).sum().item()
+            n_inf = torch.isinf(xt).sum().item()
+            if n_nan or n_inf:
+                bad_samples.append((idx, f"nan={int(n_nan)}, inf={int(n_inf)}"))
+
+            nan_total += int(n_nan)
+            inf_total += int(n_inf)
+
+            # учтём класс, если он есть
+            if y is not None:
+                class_counter[int(y)] += 1
+                if nb_classes is not None and (y < 0 or y >= nb_classes):
+                    out_of_range_labels[int(y)] += 1
+
+        summary[split_name] = {
+            "size": n,
+            "checked": limit,
+            "nan": nan_total,
+            "inf": inf_total,
+            "bad_samples": bad_samples,
+            "class_counts": dict(class_counter),
+            "labels_out_of_range": dict(out_of_range_labels),
+        }
+
+    if verbose:
+        print("\n==== Dataset sanity check ====")
+        for split_name, stats in summary.items():
+            print(f"\n[{split_name}] size={stats['size']} (checked {stats['checked']})")
+            print(f"  NaN total: {stats['nan']}, Inf total: {stats['inf']}")
+            if stats["labels_out_of_range"]:
+                print(f"  ⚠ labels out of range: {stats['labels_out_of_range']}")
+            # баланс классов
+            if stats["class_counts"]:
+                total_labeled = sum(stats["class_counts"].values())
+                print(f"  Class balance (count / share):")
+                for cls, cnt in sorted(stats["class_counts"].items()):
+                    share = 100.0 * cnt / max(1, total_labeled)
+                    print(f"    class {cls}: {cnt} ({share:.2f}%)")
+            # для отладки покажем первые 10 проблемных индексов
+            if stats["bad_samples"]:
+                preview = ", ".join([f"{i}:{msg}" for i, msg in stats["bad_samples"][:10]])
+                print(f"  Bad samples: {len(stats['bad_samples'])}  e.g. {preview}")
+            else:
+                print("  Bad samples: 0")
+
+    return summary
+# ---------------------------------------------------------------------------
+
+
 
 def main(args, ds_init):
     utils_multidata.init_distributed_mode(args)
@@ -342,6 +475,19 @@ def main(args, ds_init):
     # ch_names: list of strings, channel names of the dataset. It should be in capital letters.
     # metrics: list of strings, the metrics you want to use. We utilize PyHealth to implement it.
     dataset_train, dataset_test, dataset_val, ch_names, metrics = get_dataset(args)
+
+    if False and utils_multidata.get_rank() == 0:  # Проверка датасетов. сейчас для FACED все отлично
+        _ = sanity_check_splits(
+            {
+                "train": dataset_train,
+                "val": dataset_val,
+                "test": dataset_test,
+            },
+            nb_classes=getattr(args, "nb_classes", None),
+            max_items_per_split=None,  # можно поставить, например, 200 для быстрого прогона
+            verbose=True,
+        )
+
 
     if args.disable_eval_during_finetuning:
         dataset_val = None
@@ -383,7 +529,7 @@ def main(args, ds_init):
     # def _worker_init_fn(_):
     #     # на случай, если захотите что-то явно сбрасывать в датасете
     #     pass
-
+    pf = None if opts.num_workers == 0 else opts.prefetch_factor
     data_loader_train = torch.utils.data.DataLoader(
         dataset_train, sampler=sampler_train,
         batch_size=args.batch_size,
@@ -391,7 +537,7 @@ def main(args, ds_init):
         pin_memory=args.pin_mem,
         drop_last=True,
         persistent_workers=False,  # Критично: не держим воркеров «липкими»
-        prefetch_factor=2,
+        prefetch_factor=pf,
         # worker_init_fn=_worker_init_fn
     )
 
@@ -403,7 +549,6 @@ def main(args, ds_init):
     #     pin_memory=args.pin_mem,
     #     drop_last=True,
     # )
-
     if dataset_val is not None:
         data_loader_val = torch.utils.data.DataLoader(
             dataset_val, sampler=sampler_val,
@@ -412,7 +557,7 @@ def main(args, ds_init):
             pin_memory=args.pin_mem,
             drop_last=False,
             persistent_workers=False,  # Критично: не держим воркеров «липкими»
-            prefetch_factor=2,
+            prefetch_factor=pf,
             # worker_init_fn=_worker_init_fn
         )
         if type(dataset_test) == list:
@@ -423,7 +568,7 @@ def main(args, ds_init):
                 pin_memory=args.pin_mem,
                 drop_last=False,
                 persistent_workers = False,  # Критично: не держим воркеров «липкими»
-                prefetch_factor = 2,
+                prefetch_factor = pf,
                 # worker_init_fn = _worker_init_fn
             ) for dataset, sampler in zip(dataset_test, sampler_test)]
         else:
@@ -434,7 +579,7 @@ def main(args, ds_init):
                 pin_memory=args.pin_mem,
                 drop_last=False,
                 persistent_workers = False,  # Критично: не держим воркеров «липкими»
-                prefetch_factor = 2,
+                prefetch_factor = pf,
                 # worker_init_fn = _worker_init_fn
             )
     else:
@@ -697,12 +842,15 @@ def main(args, ds_init):
 
 if __name__ == '__main__':
     import torch.multiprocessing as mp
-    try:
-        mp.set_start_method("spawn", force=True)
-    except RuntimeError:
-        pass  # метод уже установлен
 
     opts, ds_init = get_args()
+    spawn_required_datasets = {"PHYSIO"}
+    if opts.dataset.upper() in spawn_required_datasets:
+        try:
+            mp.set_start_method("spawn", force=True)
+        except RuntimeError:
+            pass  # метод уже установлен
+
     if opts.output_dir:
         Path(opts.output_dir).mkdir(parents=True, exist_ok=True)
     main(opts, ds_init)

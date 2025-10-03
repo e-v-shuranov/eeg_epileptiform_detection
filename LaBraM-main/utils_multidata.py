@@ -805,25 +805,79 @@ def prepare_TUAB_dataset(root):
     print(len(train_files), len(val_files), len(test_files))
     return train_dataset, test_dataset, val_dataset
 
-
+import warnings
 def get_metrics(output, target, metrics, is_binary, threshold=0.5):
-    if is_binary:
-        if 'roc_auc' not in metrics or sum(target) * (len(target) - sum(target)) != 0:  # to prevent all 0 or all 1 and raise the AUROC error
-            results = binary_metrics_fn(
-                target,
-                output,
-                metrics=metrics,
-                threshold=threshold,
-            )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        if is_binary:
+            if 'roc_auc' not in metrics or sum(target) * (len(target) - sum(target)) != 0:  # to prevent all 0 or all 1 and raise the AUROC error
+                results = binary_metrics_fn(
+                    target,
+                    output,
+                    metrics=metrics,
+                    threshold=threshold,
+                )
+            else:
+                results = {
+                    "accuracy": 0.0,
+                    "balanced_accuracy": 0.0,
+                    "pr_auc": 0.0,
+                    "roc_auc": 0.0,
+                }
         else:
-            results = {
-                "accuracy": 0.0,
-                "balanced_accuracy": 0.0,
-                "pr_auc": 0.0,
-                "roc_auc": 0.0,
-            }
-    else:
-        results = multiclass_metrics_fn(
-            target, output, metrics=metrics
-        )
+            results = multiclass_metrics_fn(
+                target, output, metrics=metrics
+            )
     return results
+
+# ==== Sanity helpers for inputs (NaN/Inf/overflow guard) ====
+
+def _summ_stats(x: torch.Tensor):
+    with torch.no_grad():
+        return dict(
+            min=float(x.amin().item()),
+            max=float(x.amax().item()),
+            mean=float(x.mean().item()),
+            std=float(x.std().item()),
+        )
+
+def sanitize_inputs(
+    x: torch.Tensor,
+    clip_value: float | None = None,
+    log_prefix: str = "[SANITY]",
+    print_every: int | None = None,
+    global_step: int | None = None,
+):
+    """
+    - Заменяет NaN/Inf на конечные значения (0 / +/-clip_value/1e6)
+    - Опционально клиппирует по модулю (если clip_value задан)
+    - Возвращает (x_fixed, info_dict, was_changed: bool)
+    """
+    info = {}
+    was_changed = False
+
+    if not torch.isfinite(x).all():
+        was_changed = True
+        nan_cnt = (~torch.isfinite(x)).sum().item()
+        info["nonfinite_count"] = int(nan_cnt)
+        # заменяем NaN/Inf
+        pos = clip_value if clip_value is not None else 1e6
+        x = torch.nan_to_num(x, nan=0.0, posinf=pos, neginf=-pos)
+
+    if clip_value is not None:
+        # клиппинг по модулю
+        x = x.clamp(min=-clip_value, max=clip_value)
+
+    # базовая статистика
+    stats = _summ_stats(x)
+    info.update(stats)
+
+    # опциональный лог раз в N шагов
+    if print_every is not None and global_step is not None:
+        if global_step % max(1, print_every) == 0:
+            print(f"{log_prefix} step={global_step} "
+                  f"min={stats['min']:.4g} max={stats['max']:.4g} "
+                  f"mean={stats['mean']:.4g} std={stats['std']:.4g} "
+                  f"{'(fixed non-finite)' if was_changed else ''}")
+
+    return x, info, was_changed

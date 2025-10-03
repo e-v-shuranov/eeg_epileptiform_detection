@@ -12,8 +12,9 @@ import sys
 from typing import Iterable, Optional
 import torch
 from timm.utils import ModelEma
-import utils
+import utils_multidata
 from einops import rearrange
+from utils_multidata import sanitize_inputs
 
 def train_class_batch(model, samples, target, criterion, ch_names):
     outputs = model(samples, ch_names)
@@ -35,13 +36,15 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     input_chans = None
     # ch_names=ch_names[:16]
     if ch_names is not None:
-        input_chans = utils.get_input_chans(ch_names)
+        input_chans = utils_multidata.get_input_chans(ch_names)
     model.train(True)
-    metric_logger = utils.MetricLogger(delimiter="  ")
-    metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
-    metric_logger.add_meter('min_lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
+    metric_logger = utils_multidata.MetricLogger(delimiter="  ")
+    metric_logger.add_meter('lr', utils_multidata.SmoothedValue(window_size=1, fmt='{value:.6f}'))
+    metric_logger.add_meter('min_lr', utils_multidata.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     header = 'Epoch: [{}]'.format(epoch)
     print_freq = 10
+    clip_val = 1e6
+    print_every = 20
 
     if loss_scaler is None:
         model.zero_grad()
@@ -64,6 +67,16 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     param_group["weight_decay"] = wd_schedule_values[it]
 
         samples = samples.float().to(device, non_blocking=True) / 100
+        samples, sanity_info, was_fixed = sanitize_inputs(
+            samples,
+            clip_value=clip_val,
+            print_every=print_every,
+            global_step=data_iter_step if 'data_iter_step' in locals() else None,
+        )
+        if was_fixed:
+            print("!!!!!!!!!!!!!!!!samples was_fixed!!!!!!!!!!!!!!")
+            pass
+
         if dataloadertype != 'CBRamode':
             samples = rearrange(samples, 'B N (A T) -> B N A T', T=200)
         
@@ -114,7 +127,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         torch.cuda.synchronize()
 
         if is_binary:
-            class_acc = utils.get_metrics(torch.sigmoid(output).detach().cpu().numpy(), targets.detach().cpu().numpy(), ["accuracy"], is_binary)["accuracy"]
+            class_acc = utils_multidata.get_metrics(torch.sigmoid(output).detach().cpu().numpy(), targets.detach().cpu().numpy(), ["accuracy"], is_binary)["accuracy"]
         else:
             class_acc = (output.max(-1)[-1] == targets.squeeze()).float().mean()
             
@@ -157,13 +170,13 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True, dataloadertype=''):
     input_chans = None
     if ch_names is not None:
-        input_chans = utils.get_input_chans(ch_names)
+        input_chans = utils_multidata.get_input_chans(ch_names)
     if is_binary:
         criterion = torch.nn.BCEWithLogitsLoss()
     else:
         criterion = torch.nn.CrossEntropyLoss()
 
-    metric_logger = utils.MetricLogger(delimiter="  ")
+    metric_logger = utils_multidata.MetricLogger(delimiter="  ")
     #header = 'Test:'
 
     # switch to evaluation mode
@@ -191,7 +204,7 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
             output = output.cpu()
         target = target.cpu()
 
-        results = utils.get_metrics(output.numpy(), target.numpy(), metrics, is_binary)
+        results = utils_multidata.get_metrics(output.numpy(), target.numpy(), metrics, is_binary)
         pred.append(output)
         true.append(target)
 
@@ -208,6 +221,6 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
     pred = torch.cat(pred, dim=0).numpy()
     true = torch.cat(true, dim=0).numpy()
 
-    ret = utils.get_metrics(pred, true, metrics, is_binary, 0.5)
+    ret = utils_multidata.get_metrics(pred, true, metrics, is_binary, 0.5)
     ret['loss'] = metric_logger.loss.global_avg
     return ret
