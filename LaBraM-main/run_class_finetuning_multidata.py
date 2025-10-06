@@ -180,7 +180,7 @@ def get_args():
 
     parser.add_argument('--enable_deepspeed', action='store_true', default=False)
     parser.add_argument('--dataset', default='TUAB', type=str,
-                        help='dataset: TUAB | TUEV')
+                        help='dataset: TUAB | TUEV | CHB-MIT')
 
     known_args, _ = parser.parse_known_args()
 
@@ -216,6 +216,29 @@ def get_models(args):
     )
 
     return model
+
+
+def _normalize_chb_mit_channels(raw_channels):
+    """Convert CHB-MIT channel labels to the standard_1020 bipolar subset."""
+
+    alias_map = {
+        'F7-T3': 'F7-T7',
+        'T3-T5': 'T7-P7',
+        'T5-O1': 'P7-O1',
+        'T6-O2': 'P8-O2',
+    }
+
+    normalized_channels = []
+    for channel in raw_channels:
+        normalized = channel.strip().upper().replace(' ', '')
+        normalized = alias_map.get(normalized, normalized)
+        if normalized not in utils_multidata.standard_1020:
+            raise ValueError(
+                f"Channel '{channel}' normalized to '{normalized}' is not present in standard_1020"
+            )
+        normalized_channels.append(normalized)
+
+    return normalized_channels
 
 
 def get_dataset(args):
@@ -316,6 +339,31 @@ def get_dataset(args):
 
         args.nb_classes = 4
         metrics = ["accuracy", "balanced_accuracy", "cohen_kappa", "f1_weighted"]
+    elif args.dataset == 'CHB-MIT':
+        load_dataset = chb_dataset.LoadDataset(args)
+        train_dataset, val_dataset, test_dataset = load_dataset.get_data_loader()
+        ch_names_original = [
+            "FP1-F7",
+            "F7-T7",
+            "T7-P7",
+            "P7-O1",
+            "FP2-F8",
+            "F8-T8",
+            "T8-P8",
+            "P8-O2",
+            "FP1-F3",
+            "F3-C3",
+            "C3-P3",
+            "P3-O1",
+            "FP2-F4",
+            "F4-C4",
+            "C4-P4",
+            "P4-O2",
+        ]
+        # Align to the CHB-MIT bipolar subset included at the end of standard_1020.
+        ch_names = _normalize_chb_mit_channels(ch_names_original)
+        args.nb_classes = 1
+        metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
 
     return train_dataset, test_dataset, val_dataset, ch_names, metrics
 
