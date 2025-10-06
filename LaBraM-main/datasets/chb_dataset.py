@@ -33,7 +33,7 @@ class CustomDataset(Dataset):
     def collate(self, batch):
         x_data = np.array([x[0] for x in batch])
         y_label = np.array([x[1] for x in batch])
-        return to_tensor(x_data), to_tensor(y_label)
+        return to_tensor(x_data), to_tensor(y_label).long()
 
 
 class LoadDataset(object):
@@ -45,8 +45,10 @@ class LoadDataset(object):
         train_set = CustomDataset(self.datasets_dir, mode='train')
         val_set = CustomDataset(self.datasets_dir, mode='val')
         test_set = CustomDataset(self.datasets_dir, mode='test')
-        print(len(train_set), len(val_set), len(test_set))
-        print(len(train_set) + len(val_set) + len(test_set))
+        model_name = getattr(self.params, "model", "")
+        if isinstance(model_name, str) and "labram" in model_name.lower():
+            return train_set, val_set, test_set
+
         data_loader = {
             'train': DataLoader(
                 train_set,
