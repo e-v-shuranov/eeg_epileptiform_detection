@@ -20,3 +20,5 @@ LaBraM-main/sz_metrics_old.py
 LaBraM-main/dataset_maker/tmp.py
 /LaBraM-main/data_processor/matb2_parcer
 LaBraM-main/Check_Dataset.py
+LaBraM-main/modeling_finetune_exp with amp_autocast disable for patch_embed.py
+test/szcore-evaluation/
