@@ -497,20 +497,85 @@ def get_grad_norm(parameters, norm_type=2):
 
 class NativeScalerWithGradNormCount:
     state_dict_key = "amp_scaler"
+    def __init__(
+        self,
+        init_scale=2**10,           # 1024 вместо 65536
+        growth_factor=2.0,
+        backoff_factor=0.5,         # можно 0.25, если хотим поагрессивнее
+        growth_interval=2000,       # реже увеличиваем, чтобы не «вскакивало» обратно
+        enabled=True,
+    ):
+        self._scaler = torch.cuda.amp.GradScaler(
+            init_scale=256,
+            growth_factor=growth_factor,
+            backoff_factor=0.25,
+            growth_interval=5000,
+            enabled=enabled,
+        )
 
-    def __init__(self):
-        self._scaler = torch.cuda.amp.GradScaler()
+    # def __init__(self):
+    #     self._scaler = torch.cuda.amp.GradScaler()
 
     def __call__(self, loss, optimizer, clip_grad=None, parameters=None, create_graph=False, update_grad=True, layer_names=None):
         self._scaler.scale(loss).backward(create_graph=create_graph)
+        # === UN-SCALE before any checks/clipping ===
+        self._scaler.unscale_(optimizer)
+
+        # === gradient debug AFTER unscale (now grads are in correct scale) ===
+        params_list = []
+        if parameters is not None:
+            try:
+                params_list = list(parameters)
+            except TypeError:
+                params_list = parameters
+
+        if layer_names is not None:
+            names = list(layer_names)[:len(params_list)]
+        else:
+            names = [f'param_{i}' for i in range(len(params_list))]
+
+        # print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!check started (after unscale)!!!!!!!!!!!!!!!!!!!!!!!!")
+        bad_found = False
+        bad_msg = None
+        for i, (name, p) in enumerate(zip(names, params_list)):
+            if p.grad is None:
+                continue
+            g = p.grad
+            if not torch.isfinite(g).all():
+                bad_found = True
+                bad_mask = ~torch.isfinite(g)
+                bad_idx = tuple(bad_mask.nonzero(as_tuple=False)[0].tolist())
+                first_val = g[bad_idx]
+                with torch.no_grad():
+                    finite = g[torch.isfinite(g)]
+                    if finite.numel() > 0:
+                        stats = f"min={finite.min().item():.3e}, max={finite.max().item():.3e}, mean={finite.mean().item():.3e}"
+                    else:
+                        stats = "no finite values"
+                bad_msg = (
+                i, name, tuple(p.shape), bad_idx, first_val.item() if first_val.numel() == 1 else first_val, stats)
+                break
+
+        if bad_found:
+            i, name, shape, bad_idx, val, stats = bad_msg
+            print(f"[BAD GRAD] idx={i}, name={name}, shape={shape}")
+            print(f"  first bad index: {bad_idx}, value: {val}")
+            print(f"  grad stats: {stats}")
+        # else:
+        #     print("No NaN/Inf in grads after unscale")
+        # print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!END check !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+
         if update_grad:
             if clip_grad is not None:
                 assert parameters is not None
-                self._scaler.unscale_(optimizer)  # unscale the gradients of optimizer's assigned params in-place
-                norm = torch.nn.utils.clip_grad_norm_(parameters, clip_grad)
+                # self._scaler.unscale_(optimizer)  # unscale the gradients of optimizer's assigned params in-place
+                # norm = torch.nn.utils.clip_grad_norm_(parameters, clip_grad)
+                norm = torch.nn.utils.clip_grad_norm_(params_list, clip_grad)
             else:
-                self._scaler.unscale_(optimizer)
-                norm = get_grad_norm_(parameters, layer_names=layer_names)
+                # self._scaler.unscale_(optimizer)
+                norm = get_grad_norm_(parameters)
+                # norm = get_grad_norm_(parameters, layer_names=layer_names)
+                # norm = get_grad_norm_(params_list, layer_names=names)
             self._scaler.step(optimizer)
             self._scaler.update()
         else:

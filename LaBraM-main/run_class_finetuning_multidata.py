@@ -752,6 +752,17 @@ def main(args, ds_init):
     max_balanced_accuracy = 0.0
     max_balanced_accuracy_test = 0.0
     for epoch in range(args.start_epoch, args.epochs):
+        if epoch<=5:
+            for p in model.patch_embed.parameters():
+                p.requires_grad = False
+            # for n, p in model.named_parameters():
+            #     p.requires_grad = ('head' in n) or ('fc_norm' in n)
+        else:
+            for p in model.patch_embed.parameters():
+                p.requires_grad = True
+            # for p in model.parameters():
+            #     p.requires_grad = True
+
         if args.distributed:
             data_loader_train.sampler.set_epoch(epoch)
         if log_writer is not None:

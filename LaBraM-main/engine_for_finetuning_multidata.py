@@ -115,9 +115,20 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             # this attribute is added by timm on one optimizer (adahessian)
             is_second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
             loss /= update_freq
-            grad_norm = loss_scaler(loss, optimizer, clip_grad=max_norm,
-                                    parameters=model.parameters(), create_graph=is_second_order,
-                                    update_grad=(data_iter_step + 1) % update_freq == 0)
+            # grad_norm = loss_scaler(loss, optimizer, clip_grad=max_norm,
+            #                         parameters=model.parameters(), create_graph=is_second_order,
+            #                         update_grad=(data_iter_step + 1) % update_freq == 0)
+            params_list = list(model.parameters())
+            layer_names = [n for n, _ in model.named_parameters()]
+            grad_norm = loss_scaler(
+                loss, optimizer, clip_grad=max_norm,
+                parameters=params_list,  # список, не генератор
+                create_graph=is_second_order,
+                update_grad=(data_iter_step + 1) % update_freq == 0,
+                layer_names=layer_names  # имена для печати
+            )
+
+
             if (data_iter_step + 1) % update_freq == 0:
                 optimizer.zero_grad()
                 if model_ema is not None:

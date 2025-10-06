@@ -278,3 +278,113 @@ Face one more try
 --datasets_dir /media/public/Datasets/cbramod_data/FACED/processed
 --num_workers 0
 --no_pin_mem
+
+FACED fixed inf/nan problem  acc 0.34
+--output_dir ./checkpoints/finetune_FACED_v4/
+--log_dir ./log/finetune_FACED_v4
+--model labram_base_patch200_200
+--finetune ./checkpoints/labram-base.pth
+--weight_decay 0.05
+--batch_size 32
+--lr 3e-4
+--update_freq 1
+--warmup_epochs 3
+--epochs 100
+--layer_decay 0.65
+--drop_path 0.1
+--dist_eval
+--save_ckpt_freq 5
+--disable_rel_pos_bias
+--abs_pos_emb
+--dataset FACED
+--disable_qkv_bias
+--seed 0
+--datasets_dir /media/public/Datasets/cbramod_data/FACED/processed
+--num_workers 0
+--no_pin_mem
+--clip_grad 0.5
+
+
+
+FACED
+CHange: --lr 1e-4 --layer_decay 0.8 --warmup_epochs 10 --smoothing 0.0 --reprob 0.0 --drop_path 0.05
+
+--output_dir ./checkpoints/finetune_FACED_v5/
+--log_dir ./log/finetune_FACED_v5
+--model labram_base_patch200_200
+--finetune ./checkpoints/labram-base.pth
+--weight_decay 0.05
+--batch_size 32
+--lr 1e-4
+--update_freq 1
+--warmup_epochs 10
+--epochs 30
+--layer_decay 0.8
+--drop_path 0.05
+--dist_eval
+--save_ckpt_freq 5
+--disable_rel_pos_bias
+--abs_pos_emb
+--dataset FACED
+--disable_qkv_bias
+--seed 0
+--datasets_dir /media/public/Datasets/cbramod_data/FACED/processed
+--num_workers 0
+--no_pin_mem
+--clip_grad 0.5
+--smoothing 0.0
+--reprob 0.0
+
+
+Universal pipeline
+
+--output_dir ./checkpoints/finetune_FACED_v5/
+--log_dir ./log/finetune_FACED_v5
+--model labram_base_patch200_200
+--finetune ./checkpoints/labram-base.pth
+--weight_decay 0.05
+--batch_size 32
+--lr 3e-4
+--update_freq 1
+--warmup_epochs 3
+--epochs 30
+--layer_decay 0.65
+--drop_path 0.1
+--dist_eval
+--save_ckpt_freq 5
+--disable_rel_pos_bias
+--abs_pos_emb
+--dataset FACED
+--disable_qkv_bias
+--seed 0
+--datasets_dir /media/public/Datasets/cbramod_data/FACED/processed
+--num_workers 0
+--no_pin_mem
+--clip_grad 0.5
+
+
+эксперименты с отключением клипирования градиента
+
+
+--output_dir ./checkpoints/finetune_FACED_v6/
+--log_dir ./log/finetune_FACED_v6
+--model labram_base_patch200_200
+--finetune ./checkpoints/labram-base.pth
+--weight_decay 0.05
+--batch_size 32
+--lr 3e-4
+--update_freq 1
+--warmup_epochs 3
+--epochs 100
+--layer_decay 0.65
+--drop_path 0.1
+--dist_eval
+--save_ckpt_freq 5
+--disable_rel_pos_bias
+--abs_pos_emb
+--dataset FACED
+--disable_qkv_bias
+--seed 0
+--datasets_dir /media/public/Datasets/cbramod_data/FACED/processed
+--num_workers 0
+--no_pin_mem
