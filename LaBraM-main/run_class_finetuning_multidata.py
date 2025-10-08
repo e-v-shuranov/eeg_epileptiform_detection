@@ -170,6 +170,9 @@ def get_args():
     parser.add_argument('--no_pin_mem', action='store_false', dest='pin_mem')
     parser.set_defaults(pin_mem=True)
 
+    parser.add_argument('--pos_weight', type=float, default=None,
+                        help='Positive-class weight for BCEWithLogitsLoss when using binary datasets')
+
     # distributed training parameters
     parser.add_argument('--world_size', default=1, type=int,
                         help='number of distributed processes')
@@ -757,7 +760,13 @@ def main(args, ds_init):
     print("Max WD = %.7f, Min WD = %.7f" % (max(wd_schedule_values), min(wd_schedule_values)))
 
     if args.nb_classes == 1:
-        criterion = torch.nn.BCEWithLogitsLoss()
+        pos_weight_tensor = None
+        if args.pos_weight is not None:
+            pos_weight_tensor = torch.tensor([args.pos_weight], device=device)
+            print(f"Using BCEWithLogitsLoss with pos_weight={args.pos_weight:.6f} (≈ N_neg / N_pos)")
+        else:
+            print("Using BCEWithLogitsLoss without pos_weight; consider setting --pos_weight=N_neg/N_pos for imbalanced splits")
+        criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight_tensor)
     elif args.smoothing > 0.:
         criterion = LabelSmoothingCrossEntropy(smoothing=args.smoothing)
     else:
