@@ -388,3 +388,54 @@ Universal pipeline
 --datasets_dir /media/public/Datasets/cbramod_data/FACED/processed
 --num_workers 0
 --no_pin_mem
+
+CHBMIT - auto
+
+--output_dir ./checkpoints/finetune_chb_mit_v2/
+--log_dir ./log/finetune_chb_mit_v2
+--model labram_base_patch200_200
+--finetune ./checkpoints/labram-base.pth
+--weight_decay 0.05
+--batch_size 32
+--lr 3e-4
+--update_freq 1
+--warmup_epochs 3
+--epochs 30
+--layer_decay 0.65
+--drop_path 0.1
+--dist_eval
+--save_ckpt_freq 5
+--disable_rel_pos_bias
+--abs_pos_emb
+--dataset CHB-MIT
+--disable_qkv_bias
+--seed 0
+--datasets_dir /media/public/Datasets/cbramod_data/CHBMIT/processed_seg
+--num_workers 0
+--no_pin_mem
+
+
+CHBMIT - speedup
+
+--output_dir ./checkpoints/finetune_chb_mit/
+--log_dir ./log/finetune_chb_mit
+--model labram_base_patch200_200
+--finetune ./checkpoints/labram-base.pth
+--weight_decay 0.05
+--batch_size 512
+--lr 3e-4
+--update_freq 1
+--warmup_epochs 3
+--epochs 100
+--layer_decay 0.65
+--drop_path 0.1
+--dist_eval
+--save_ckpt_freq 5
+--disable_rel_pos_bias
+--abs_pos_emb
+--dataset CHB-MIT
+--disable_qkv_bias
+--seed 0
+--datasets_dir /media/public/Datasets/cbramod_data/CHBMIT/processed_seg
+--num_workers 10
+--no_pin_mem

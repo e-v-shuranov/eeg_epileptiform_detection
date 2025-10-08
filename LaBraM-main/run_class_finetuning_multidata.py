@@ -360,6 +360,7 @@ def get_dataset(args):
             "C4-P4",
             "P4-O2",
         ]
+        ch_names_original = ch_names_original[:8]
         # Align to the CHB-MIT bipolar subset included at the end of standard_1020.
         ch_names = _normalize_chb_mit_channels(ch_names_original)
         args.nb_classes = 1
@@ -509,7 +510,8 @@ def main(args, ds_init):
 
     print(args)
 
-    device = torch.device(args.device)
+    # device = torch.device(args.device)
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
     # fix the seed for reproducibility
     seed = args.seed + utils_multidata.get_rank()
@@ -524,7 +526,7 @@ def main(args, ds_init):
     # metrics: list of strings, the metrics you want to use. We utilize PyHealth to implement it.
     dataset_train, dataset_test, dataset_val, ch_names, metrics = get_dataset(args)
 
-    if False and utils_multidata.get_rank() == 0:  # Проверка датасетов. сейчас для FACED все отлично
+    if utils_multidata.get_rank() == 0:  # Проверка датасетов. сейчас для FACED все отлично
         _ = sanity_check_splits(
             {
                 "train": dataset_train,
@@ -577,7 +579,7 @@ def main(args, ds_init):
     # def _worker_init_fn(_):
     #     # на случай, если захотите что-то явно сбрасывать в датасете
     #     pass
-    pf = None if opts.num_workers == 0 else opts.prefetch_factor
+    pf = None if opts.num_workers == 0 else 2  #opts.prefetch_factor
     data_loader_train = torch.utils.data.DataLoader(
         dataset_train, sampler=sampler_train,
         batch_size=args.batch_size,

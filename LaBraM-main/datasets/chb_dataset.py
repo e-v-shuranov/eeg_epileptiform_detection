@@ -27,8 +27,9 @@ class CustomDataset(Dataset):
         data = data_dict['X']
         label = data_dict['y']
         data = signal.resample(data, 2000, axis=1)
-        data = data.reshape(16, 10, 200)
-        return data/100, label
+        data = data.reshape(16, 10, 200)[:8,:,:]
+
+        return data, label
 
     def collate(self, batch):
         x_data = np.array([x[0] for x in batch])
