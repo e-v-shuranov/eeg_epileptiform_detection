@@ -426,7 +426,7 @@ CHBMIT - speedup
 --lr 3e-4
 --update_freq 1
 --warmup_epochs 3
---epochs 100
+--epochs 30
 --layer_decay 0.65
 --drop_path 0.1
 --dist_eval
@@ -439,3 +439,4 @@ CHBMIT - speedup
 --datasets_dir /media/public/Datasets/cbramod_data/CHBMIT/processed_seg
 --num_workers 10
 --no_pin_mem
+--pos_weight 150

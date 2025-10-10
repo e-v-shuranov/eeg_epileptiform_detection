@@ -133,6 +133,10 @@ def get_args():
     parser.add_argument('--disable_weight_decay_on_rel_pos_bias', action='store_true', default=False)
 
     # Dataset parameters
+    parser.add_argument('--check_dataset', action='store_true', default=False,
+                        help='Run or Do not run sanity_check_splits ')
+
+
     parser.add_argument('--nb_classes', default=0, type=int,
                         help='number of the classification types')
 
@@ -529,7 +533,7 @@ def main(args, ds_init):
     # metrics: list of strings, the metrics you want to use. We utilize PyHealth to implement it.
     dataset_train, dataset_test, dataset_val, ch_names, metrics = get_dataset(args)
 
-    if utils_multidata.get_rank() == 0:  # Проверка датасетов. сейчас для FACED все отлично
+    if args.check_dataset and utils_multidata.get_rank() == 0:  # Проверка датасетов. сейчас для FACED все отлично
         _ = sanity_check_splits(
             {
                 "train": dataset_train,
@@ -846,8 +850,8 @@ def main(args, ds_init):
             test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1, dataloadertype=dataloadertype)
             print(f"Accuracy of the network on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%")
             
-            if max_accuracy < val_stats["accuracy"]:
-                max_accuracy = val_stats["accuracy"]
+            if max_accuracy < val_stats["balanced_accuracy"]:
+                max_accuracy = val_stats["balanced_accuracy"]
                 if args.output_dir and args.save_ckpt:
                     utils_multidata.save_model(
                         args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
