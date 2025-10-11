@@ -247,7 +247,19 @@ def _normalize_chb_mit_channels(raw_channels):
 
     return normalized_channels
 
+def _normalize_bciciv2a_channels(raw_channels):
+    """Ensure BCICIV2a channel labels match the standard_1020 montage."""
 
+    normalized_channels = []
+    for channel in raw_channels:
+        normalized = channel.strip().upper().replace(' ', '')
+        if normalized not in utils_multidata.standard_1020:
+            raise ValueError(
+                f"Channel '{channel}' normalized to '{normalized}' is not present in standard_1020"
+            )
+        normalized_channels.append(normalized)
+
+    return normalized_channels
 def get_dataset(args):
 
     if args.dataset == 'TUAB':
@@ -372,7 +384,43 @@ def get_dataset(args):
         ch_names = _normalize_chb_mit_channels(ch_names_original)
         args.nb_classes = 1
         metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
+    elif args.dataset == "BCICIV2a":
+        load_dataset = bciciv2a_dataset.LoadDataset(args)
+        dataset_bundle = load_dataset.get_data_loader()
+        if isinstance(dataset_bundle, tuple):
+            train_dataset, val_dataset, test_dataset = dataset_bundle
+        else:
+            train_dataset = dataset_bundle['train'].dataset
+            val_dataset = dataset_bundle['val'].dataset
+            test_dataset = dataset_bundle['test'].dataset
 
+        ch_names_original = [
+            "Fz",
+            "FC3",
+            "FC1",
+            "FCz",
+            "FC2",
+            "FC4",
+            "C5",
+            "C3",
+            "C1",
+            "Cz",
+            "C2",
+            "C4",
+            "C6",
+            "CP3",
+            "CP1",
+            "CPz",
+            "CP2",
+            "CP4",
+            "P1",
+            "Pz",
+            "P2",
+            "POz",
+        ]
+        ch_names = _normalize_bciciv2a_channels(ch_names_original)
+        args.nb_classes = 5
+        metrics = ["accuracy", "balanced_accuracy", "cohen_kappa", "f1_weighted"]
     return train_dataset, test_dataset, val_dataset, ch_names, metrics
 
 # --- Dataset sanity check: NaN/Inf scan + class balance ----------------------
@@ -839,7 +887,7 @@ def main(args, ds_init):
         optimizer=optimizer, loss_scaler=loss_scaler, model_ema=model_ema)
     if (args.dataset == 'Mumtaz' or args.dataset == 'FACED' or args.dataset == 'SEED-V' or
             args.dataset == 'PHYSIO' or args.dataset == 'SHU-MI' or args.dataset == 'ISRUC' or
-            args.dataset == 'CHB-MIT' or args.dataset == 'BCIC2020-3' or args.dataset == 'SEED-VIG' or
+            args.dataset == 'CHB-MIT' or args.dataset == 'BCICIV2a' or args.dataset == 'SEED-VIG' or
             args.dataset == 'MentalArithmetic' or args.dataset == 'BCIC-IV-2a'):
         dataloadertype = 'CBRamode'
     else:

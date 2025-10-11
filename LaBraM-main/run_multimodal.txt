@@ -459,3 +459,65 @@ FACED
 --dataset FACED
 --datasets_dir /media/public/Datasets/cbramod_data/FACED/processed
 --fixed_chkpt /media/public/eshuranov/eeg_epileptiform_detection/LaBraM-main/checkpoints/finetune_FACED_v6/checkpoint-best.pth
+
+
+
+BCICIV2a finetune
+
+--output_dir ./checkpoints/finetune_BCICIV2a/
+--log_dir ./log/finetune_BCICIV2a
+--model labram_base_patch200_200
+--finetune ./checkpoints/labram-base.pth
+--weight_decay 0.05
+--batch_size 512
+--lr 3e-4
+--update_freq 1
+--warmup_epochs 3
+--epochs 30
+--layer_decay 0.65
+--drop_path 0.1
+--dist_eval
+--save_ckpt_freq 5
+--disable_rel_pos_bias
+--abs_pos_emb
+--dataset BCICIV2a
+--disable_qkv_bias
+--seed 0
+--datasets_dir /media/public/Datasets/cbramod_data/BCICIV_2a/processed_inde_avg_03_50
+--num_workers 10
+--no_pin_mem
+--pos_weight 150
+
+
+--output_dir ./checkpoints/finetune_BCICIV2a/
+--log_dir ./log/finetune_BCICIV2a
+--model labram_base_patch200_200
+--finetune ./checkpoints/labram-base.pth
+--weight_decay 0.05
+--batch_size 512
+--lr 5e-4
+--update_freq 1
+--warmup_epochs 3
+--epochs 100
+--layer_decay 0.65
+--drop_path 0.1
+--dist_eval
+--save_ckpt_freq 5
+--disable_rel_pos_bias
+--abs_pos_emb
+--dataset BCICIV2a
+--disable_qkv_bias
+--seed 0
+--datasets_dir /media/public/Datasets/cbramod_data/BCICIV_2a/processed_inde_avg_03_50
+--num_workers 10
+--no_pin_mem
+
+
+BCICIV2a
+--eval
+--seed 0
+--model labram_base_patch200_200
+--batch_size 128
+--dataset BCICIV2a
+--datasets_dir /media/public/Datasets/cbramod_data/BCICIV_2a/processed_inde_avg_03_50
+--fixed_chkpt /media/public/eshuranov/eeg_epileptiform_detection/LaBraM-main/checkpoints/finetune_BCICIV2a/checkpoint-best.pth
