@@ -266,8 +266,16 @@ def _normalize_stress_channels(raw_channels):
     """Ensure Stress dataset channel labels match the standard_1020 montage."""
 
     normalized_channels = []
+    alias_map = {
+        "A2A1": "A2",
+    }
+
     for channel in raw_channels:
-        normalized = channel.strip().upper().replace(' ', '')
+        normalized = channel.strip().upper()
+        if normalized.startswith("EEG "):
+            normalized = normalized[4:]
+        normalized = normalized.replace(" ", "").replace("-", "")
+        normalized = alias_map.get(normalized, normalized)
         if normalized not in utils_multidata.standard_1020:
             raise ValueError(
                 f"Channel '{channel}' normalized to '{normalized}' is not present in standard_1020"
@@ -275,6 +283,7 @@ def _normalize_stress_channels(raw_channels):
         normalized_channels.append(normalized)
 
     return normalized_channels
+
 def get_dataset(args):
 
     if args.dataset == 'TUAB':
@@ -447,20 +456,9 @@ def get_dataset(args):
             test_dataset = dataset_bundle['test'].dataset
 
         ch_names_original = [
-            "AF3",
-            "F7",
-            "F3",
-            "FC5",
-            "T7",
-            "P7",
-            "O1",
-            "O2",
-            "P8",
-            "T8",
-            "FC6",
-            "F4",
-            "F8",
-            "AF4",
+            'EEG Fp1', 'EEG Fp2', 'EEG F3', 'EEG F4', 'EEG F7', 'EEG F8', 'EEG T3', 'EEG T4',
+            'EEG C3', 'EEG C4', 'EEG T5', 'EEG T6', 'EEG P3', 'EEG P4', 'EEG O1', 'EEG O2',
+            'EEG Fz', 'EEG Cz', 'EEG Pz', 'EEG A2-A1'
         ]
         ch_names = _normalize_stress_channels(ch_names_original)
         args.nb_classes = 1
