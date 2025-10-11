@@ -440,3 +440,22 @@ CHBMIT - speedup
 --num_workers 10
 --no_pin_mem
 --pos_weight 150
+
+
+CHBMIT
+--eval
+--seed 0
+--model labram_base_patch200_200
+--batch_size 512
+--dataset CHB-MIT
+--datasets_dir /media/public/Datasets/cbramod_data/CHBMIT/processed_seg
+--fixed_chkpt /media/public/eshuranov/eeg_epileptiform_detection/LaBraM-main/checkpoints/finetune_chb_mit/checkpoint-4.pth
+
+FACED
+--eval
+--seed 0
+--model labram_base_patch200_200
+--batch_size 128
+--dataset FACED
+--datasets_dir /media/public/Datasets/cbramod_data/FACED/processed
+--fixed_chkpt /media/public/eshuranov/eeg_epileptiform_detection/LaBraM-main/checkpoints/finetune_FACED_v6/checkpoint-best.pth

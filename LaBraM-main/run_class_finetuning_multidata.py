@@ -507,6 +507,60 @@ def sanity_check_splits(
     return summary
 # ---------------------------------------------------------------------------
 
+def _align_model_flags_with_checkpoint(args):
+    """Toggle architectural flags so they match the stored checkpoint weights."""
+
+    checkpoint_path = None
+    if args.fixed_chkpt:
+        checkpoint_path = args.fixed_chkpt
+    elif args.finetune and not args.finetune.startswith('https'):
+        checkpoint_path = args.finetune
+
+    if not checkpoint_path or not os.path.isfile(checkpoint_path):
+        return
+
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+    except Exception as exc:  # pragma: no cover - defensive logging around user-provided paths
+        print(f"Warning: failed to inspect checkpoint '{checkpoint_path}': {exc}")
+        return
+
+    state_dict = None
+    if isinstance(checkpoint, dict):
+        for candidate in ('model', 'state_dict'):
+            if candidate in checkpoint and isinstance(checkpoint[candidate], dict):
+                state_dict = checkpoint[candidate]
+                break
+    if state_dict is None and isinstance(checkpoint, dict):
+        state_dict = {k: v for k, v in checkpoint.items() if isinstance(k, str)}
+    if state_dict is None:
+        return
+
+    keys = state_dict.keys()
+    has_q_bias = any(key.endswith('attn.q_bias') for key in keys)
+    has_v_bias = any(key.endswith('attn.v_bias') for key in keys)
+    if args.qkv_bias and not (has_q_bias and has_v_bias):
+        print("Disabling qkv_bias to match checkpoint architecture (no q_bias/v_bias found).")
+        args.qkv_bias = False
+    elif not args.qkv_bias and has_q_bias and has_v_bias:
+        print("Enabling qkv_bias to match checkpoint architecture (q_bias/v_bias found).")
+        args.qkv_bias = True
+
+    has_pos_embed = any(key.split('.')[-1] == 'pos_embed' for key in keys)
+    if args.abs_pos_emb and not has_pos_embed:
+        print("Disabling abs_pos_emb to match checkpoint architecture (no pos_embed found).")
+        args.abs_pos_emb = False
+    elif not args.abs_pos_emb and has_pos_embed:
+        print("Enabling abs_pos_emb to match checkpoint architecture (pos_embed found).")
+        args.abs_pos_emb = True
+
+    has_rel_pos_bias = any('relative_position_bias_table' in key for key in keys)
+    if args.rel_pos_bias and not has_rel_pos_bias:
+        print("Disabling rel_pos_bias to match checkpoint architecture (no relative_position_bias_table found).")
+        args.rel_pos_bias = False
+    elif not args.rel_pos_bias and has_rel_pos_bias:
+        print("Enabling rel_pos_bias to match checkpoint architecture (relative_position_bias_table found).")
+        args.rel_pos_bias = True
 
 
 def main(args, ds_init):
@@ -642,6 +696,8 @@ def main(args, ds_init):
     else:
         data_loader_val = None
         data_loader_test = None
+
+    _align_model_flags_with_checkpoint(args)
 
     model = get_models(args)
 
@@ -795,17 +851,32 @@ def main(args, ds_init):
         #     test_stats = evaluate(data_loader, model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=(args.nb_classes == 1), dataloadertype=dataloadertype)
         #     accuracy.append(test_stats['accuracy'])
         #     balanced_accuracy.append(test_stats['balanced_accuracy'])
+        path_emb = "/media/public/Datasets/emb"
+        path_for_emb_storage= os.path.join(path_emb,args.dataset)
+        if not os.path.exists(path_for_emb_storage):
+            os.makedirs(path_for_emb_storage)
+        path_for_emb_storage_val= os.path.join(path_for_emb_storage,"val_emb.pkl")
+        path_for_emb_storage_test= os.path.join(path_for_emb_storage,"test_emb.pkl")
+        path_for_emb_storage_train= os.path.join(path_for_emb_storage,"train_emb.pkl")
 
-        test_stats = evaluate(data_loader_val, model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=(args.nb_classes == 1), dataloadertype=dataloadertype)
+        test_stats = evaluate(data_loader_val, model, device, header='Val:', ch_names=ch_names, metrics=metrics, is_binary=(args.nb_classes == 1), dataloadertype=dataloadertype, store_embedings=True, path_emb_pkl=path_for_emb_storage_val)
         accuracy.append(test_stats['accuracy'])
         balanced_accuracy.append(test_stats['balanced_accuracy'])
         print(f"======Accuracy val : {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
         balanced_accuracy = []
         accuracy = []
-        test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=(args.nb_classes == 1), dataloadertype=dataloadertype)
+        test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=(args.nb_classes == 1), dataloadertype=dataloadertype,store_embedings=True, path_emb_pkl=path_for_emb_storage_test)
         accuracy.append(test_stats['accuracy'])
         balanced_accuracy.append(test_stats['balanced_accuracy'])
         print(f"======Accuracy test: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
+
+        balanced_accuracy = []
+        accuracy = []
+        test_stats = evaluate(data_loader_train, model, device, header='Train:', ch_names=ch_names, metrics=metrics, is_binary=(args.nb_classes == 1), dataloadertype=dataloadertype,store_embedings=True, path_emb_pkl=path_for_emb_storage_train)
+        accuracy.append(test_stats['accuracy'])
+        balanced_accuracy.append(test_stats['balanced_accuracy'])
+        print(f"======Accuracy train: {np.mean(accuracy)} {np.std(accuracy)}, balanced accuracy: {np.mean(balanced_accuracy)} {np.std(balanced_accuracy)}")
+
         exit(0)
 
     print(f"Start training for {args.epochs} epochs")

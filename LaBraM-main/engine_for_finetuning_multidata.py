@@ -15,6 +15,7 @@ from timm.utils import ModelEma
 import utils_multidata
 from einops import rearrange
 from utils_multidata import sanitize_inputs
+import pickle
 
 def train_class_batch(model, samples, target, criterion, ch_names):
     outputs = model(samples, ch_names)
@@ -178,7 +179,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
 
 @torch.no_grad()
-def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True, dataloadertype=''):
+def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True, dataloadertype='', store_embedings = False, path_emb_pkl = "emb.pkl"):
     input_chans = None
     if ch_names is not None:
         input_chans = utils_multidata.get_input_chans(ch_names)
@@ -194,6 +195,9 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
     model.eval()
     pred = []
     true = []
+    if store_embedings:
+        signal_for_store = []
+
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
         EEG = batch[0]
         target = batch[-1]
@@ -218,12 +222,23 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
         results = utils_multidata.get_metrics(output.numpy(), target.numpy(), metrics, is_binary)
         pred.append(output)
         true.append(target)
+        if store_embedings:
+            signal_for_store.append(batch[1])
+
+
+
 
         batch_size = EEG.shape[0]
         metric_logger.update(loss=loss.item())
         for key, value in results.items():
             metric_logger.meters[key].update(value, n=batch_size)
         #metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
+
+    if store_embedings:
+        with open(path_emb_pkl, 'wb') as handle:
+            pickle.dump([signal_for_store,pred,true], handle) #, protocol=pickle.HIGHEST_PROTOCOL)
+
+
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print('* loss {losses.global_avg:.3f}'

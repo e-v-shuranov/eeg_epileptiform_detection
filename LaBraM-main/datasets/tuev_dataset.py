@@ -29,13 +29,14 @@ class CustomDataset(Dataset):
         label = int(data_dict['label'][0]-1)
         # data = signal.resample(data, 1000, axis=-1)
         data = data[:16].reshape(16, 5, 200)
-        return data/100, label, file
+        return data/100, file, label
 
     def collate(self, batch):
-        x_data = np.array([x[0] for x in batch])
-        y_label = np.array([x[1] for x in batch])
-        xs, ys, files = zip(*batch)
-        return to_tensor(x_data), to_tensor(y_label).long(),  list(files)
+        # x_data = np.array([x[0] for x in batch])
+        # y_label = np.array([x[-1] for x in batch])
+        xs, files , ys= zip(*batch)
+        # return to_tensor(x_data), to_tensor(y_label).long(),  list(files)
+        return to_tensor(xs),  list(files), to_tensor(ys).long()
 
 
 class LoadDataset(object):
