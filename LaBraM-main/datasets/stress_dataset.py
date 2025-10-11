@@ -45,6 +45,9 @@ class LoadDataset(object):
         train_set = CustomDataset(self.datasets_dir, mode='train')
         val_set = CustomDataset(self.datasets_dir, mode='val')
         test_set = CustomDataset(self.datasets_dir, mode='test')
+        if 'labram' in getattr(self.params, 'model', '').lower():
+            return train_set, val_set, test_set
+
         print(len(train_set), len(val_set), len(test_set))
         print(len(train_set)+len(val_set)+len(test_set))
         data_loader = {
@@ -58,13 +61,13 @@ class LoadDataset(object):
                 val_set,
                 batch_size=self.params.batch_size,
                 collate_fn=val_set.collate,
-                shuffle=True,
+                shuffle=False,
             ),
             'test': DataLoader(
                 test_set,
                 batch_size=self.params.batch_size,
                 collate_fn=test_set.collate,
-                shuffle=True,
+                shuffle=False,
             ),
         }
         return data_loader
