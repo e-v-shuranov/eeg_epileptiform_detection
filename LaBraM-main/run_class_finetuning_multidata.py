@@ -131,6 +131,7 @@ def get_args():
     parser.set_defaults(use_mean_pooling=True)
     parser.add_argument('--use_cls', action='store_false', dest='use_mean_pooling')
     parser.add_argument('--disable_weight_decay_on_rel_pos_bias', action='store_true', default=False)
+    parser.add_argument('--patch_embed_freeze_epoch', default=5, type=int)
 
     # Dataset parameters
     parser.add_argument('--check_dataset', action='store_true', default=False,
@@ -973,11 +974,12 @@ def main(args, ds_init):
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
     max_accuracy = 0.0
+    max_balanced_accuracy_train = 0.0
     max_accuracy_test = 0.0
     max_balanced_accuracy = 0.0
     max_balanced_accuracy_test = 0.0
     for epoch in range(args.start_epoch, args.epochs):
-        if epoch<=5:
+        if epoch<=args.patch_embed_freeze_epoch:
             for p in model.patch_embed.parameters():
                 p.requires_grad = False
             # for n, p in model.named_parameters():
@@ -1008,12 +1010,14 @@ def main(args, ds_init):
             
         if data_loader_val is not None:
             val_stats = evaluate(data_loader_val, model, device, header='Val:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1,dataloadertype=dataloadertype)
-            print(f"Accuracy of the network on the {len(dataset_val)} val EEG: {val_stats['accuracy']:.2f}%")
+            print(f"Accuracy of the network on the {len(dataset_val)} val EEG: {val_stats['accuracy']:.2f}%, balanced_accuracy:{val_stats['balanced_accuracy']:.2f}%")
             test_stats = evaluate(data_loader_test, model, device, header='Test:', ch_names=ch_names, metrics=metrics, is_binary=args.nb_classes == 1, dataloadertype=dataloadertype)
-            print(f"Accuracy of the network on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%")
-            
-            if max_accuracy < val_stats["balanced_accuracy"]:
+            print(f"Accuracy of the network on the {len(dataset_test)} test EEG: {test_stats['accuracy']:.2f}%, balanced_accuracy:{test_stats['balanced_accuracy']:.2f}%")
+            print(f"Accuracy of the network on the {len(dataset_train)} train EEG: {train_stats['class_acc']:.2f}%, balanced_accuracy:{train_stats['balanced_accuracy']:.2f}%")
+            mm = min(val_stats["balanced_accuracy"],train_stats['balanced_accuracy'])
+            if max_accuracy < mm:
                 max_accuracy = val_stats["balanced_accuracy"]
+                max_balanced_accuracy_train = train_stats['balanced_accuracy']
                 if args.output_dir and args.save_ckpt:
                     utils_multidata.save_model(
                         args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
@@ -1022,7 +1026,7 @@ def main(args, ds_init):
                 max_balanced_accuracy = val_stats["balanced_accuracy"]
                 max_balanced_accuracy_test = test_stats["balanced_accuracy"]
 
-            print(f'Max accuracy val: {max_accuracy:.2f}%, balanced_accuracy:{max_balanced_accuracy:.2f}%, accuracy test: {max_accuracy_test:.2f}% balanced_accuracy test: {max_balanced_accuracy_test:.2f}%')
+            print(f'Max balanced_accuracy val:{max_balanced_accuracy:.2f}%,  balanced_accuracy train: {max_balanced_accuracy_train:.2f}% balanced_accuracy test: {max_balanced_accuracy_test:.2f}%')
             if log_writer is not None:
                 for key, value in val_stats.items():
                     if key == 'accuracy':

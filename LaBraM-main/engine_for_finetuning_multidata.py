@@ -139,12 +139,19 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         torch.cuda.synchronize()
 
         if is_binary:
-            class_acc = utils_multidata.get_metrics(torch.sigmoid(output).detach().cpu().numpy(), targets.detach().cpu().numpy(), ["accuracy"], is_binary)["accuracy"]
+            metrics = utils_multidata.get_metrics(torch.sigmoid(output).detach().cpu().numpy(), targets.detach().cpu().numpy(), ["accuracy","balanced_accuracy"], is_binary)
+            class_acc =metrics["accuracy"]
+            b_acc =metrics["balanced_accuracy"]
+            # class_acc = utils_multidata.get_metrics(torch.sigmoid(output).detach().cpu().numpy(), targets.detach().cpu().numpy(), ["accuracy"], is_binary)["accuracy"]
         else:
+            metrics = utils_multidata.get_metrics(torch.sigmoid(output).detach().cpu().numpy(), targets.detach().cpu().numpy(), ["accuracy","balanced_accuracy"], is_binary)
+            # class_acc =metrics["accuracy"]
+            b_acc =metrics["balanced_accuracy"]
             class_acc = (output.max(-1)[-1] == targets.squeeze()).float().mean()
             
         metric_logger.update(loss=loss_value)
         metric_logger.update(class_acc=class_acc)
+        metric_logger.update(balanced_accuracy=b_acc)
         metric_logger.update(loss_scale=loss_scale_value)
         min_lr = 10.
         max_lr = 0.
@@ -164,6 +171,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         if log_writer is not None:
             log_writer.update(loss=loss_value, head="loss")
             log_writer.update(class_acc=class_acc, head="loss")
+            log_writer.update(balanced_accuracy=b_acc, head="loss")
             log_writer.update(loss_scale=loss_scale_value, head="opt")
             log_writer.update(lr=max_lr, head="opt")
             log_writer.update(min_lr=min_lr, head="opt")

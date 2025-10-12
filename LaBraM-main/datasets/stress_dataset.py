@@ -28,7 +28,7 @@ class CustomDataset(Dataset):
         data = pair['sample']
         label = pair['label']
         # print(label)
-        return data/100, label
+        return data, label
 
     def collate(self, batch):
         x_data = np.array([x[0] for x in batch])
