@@ -27,14 +27,15 @@ class CustomDataset(Dataset):
             pair = pickle.loads(txn.get(key.encode()))
         data = pair['sample']
         label = int(pair['label'])
-        return data, label
+        return data, key, label
 
     def collate(self, batch):
-        x_data = np.array([x[0] for x in batch])
-        y_label = np.array([x[1] for x in batch])
-        y = torch.from_numpy(y_label).long()
-        return to_tensor(x_data), y
-        # return to_tensor(x_data), to_tensor(y_label).long()
+        # x_data = np.array([x[0] for x in batch])
+        # y_label = np.array([x[1] for x in batch])
+        # y = torch.from_numpy(y_label).long()
+        # return to_tensor(x_data), y
+        xs, files, ys = zip(*batch)
+        return to_tensor(xs), list(files), to_tensor(ys).long()
 
 class LoadDataset(object):
     def __init__(self, params):

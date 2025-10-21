@@ -25,10 +25,11 @@ class CustomDataset(Dataset):
         file = self.files[idx]
         data_dict = pickle.load(open(file, 'rb'))
         data = data_dict['X']
-        label = data_dict['y']
+        label = int(data_dict['y'])
         # data = signal.resample(data, 2000, axis=-1)
-        data = data.reshape(16, 10, 200)
-        return data/100, label
+        data = data.reshape(16, 10, 200)[:8,:,:]
+
+        return data, label
 
     def collate(self, batch):
         x_data = np.array([x[0] for x in batch])
@@ -45,6 +46,8 @@ class LoadDataset(object):
         train_set = CustomDataset(self.datasets_dir, mode='train')
         val_set = CustomDataset(self.datasets_dir, mode='val')
         test_set = CustomDataset(self.datasets_dir, mode='test')
+        if 'labram' in getattr(self.params, 'model', '').lower():
+            return train_set, val_set, test_set
         print(len(train_set), len(val_set), len(test_set))
         print(len(train_set) + len(val_set) + len(test_set))
         data_loader = {

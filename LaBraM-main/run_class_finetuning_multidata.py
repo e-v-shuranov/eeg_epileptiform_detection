@@ -285,15 +285,78 @@ def _normalize_stress_channels(raw_channels):
 
     return normalized_channels
 
+def _normalize_tuab_channels(raw_channels):
+    """Convert TUAB bipolar derivations to the standard_1020 montage."""
+
+    alias_map = {
+        'F7-T3': 'F7-T7',
+        'T3-T5': 'T7-P7',
+        'T5-O1': 'P7-O1',
+        'F8-T4': 'F8-T8',
+        'T4-T6': 'T8-P8',
+        'T6-O2': 'P8-O2',
+    }
+
+    normalized_channels = []
+    for channel in raw_channels:
+        normalized = channel.strip().upper().replace(' ', '')
+        normalized = alias_map.get(normalized, normalized)
+        if normalized not in utils_multidata.standard_1020:
+            raise ValueError(
+                f"Channel '{channel}' normalized to '{normalized}' is not present in standard_1020"
+            )
+        normalized_channels.append(normalized)
+
+    return normalized_channels
+
 def get_dataset(args):
 
     if args.dataset == 'TUAB':
+        # Labram original preprocessing:
+
         train_dataset, test_dataset, val_dataset = utils_multidata.prepare_TUAB_dataset("path/to/TUAB")
         ch_names = ['EEG FP1', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
                     'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
         ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
         args.nb_classes = 1
         metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
+
+    elif args.dataset == 'TUAB_CBR':
+        # CBraMode preprocessing:
+        load_dataset = tuab_dataset.LoadDataset(args)
+        dataset_bundle = load_dataset.get_data_loader()
+        if isinstance(dataset_bundle, tuple):
+            train_dataset, val_dataset, test_dataset = dataset_bundle
+        else:
+            train_dataset = dataset_bundle['train'].dataset
+            val_dataset = dataset_bundle['val'].dataset
+            test_dataset = dataset_bundle['test'].dataset
+
+        ch_names_original = [
+            "FP1-F7",
+            "F7-T3",
+            "T3-T5",
+            "T5-O1",
+            "FP2-F8",
+            "F8-T4",
+            "T4-T6",
+            "T6-O2",
+            "FP1-F3",
+            "F3-C3",
+            "C3-P3",
+            "P3-O1",
+            "FP2-F4",
+            "F4-C4",
+            "C4-P4",
+            "P4-O2",
+        ]
+        ch_names_original = ch_names_original[:8]
+        ch_names = _normalize_tuab_channels(ch_names_original)
+        args.nb_classes = 1
+        metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
+
+
+
     elif args.dataset == 'TUEV':
         train_dataset, test_dataset, val_dataset = utils_multidata.prepare_TUEV_dataset("/media/public/Datasets/labram_data/TUEV/processed")
         ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
@@ -931,7 +994,7 @@ def main(args, ds_init):
     if (args.dataset == 'Mumtaz' or args.dataset == 'FACED' or args.dataset == 'SEED-V' or
             args.dataset == 'PHYSIO' or args.dataset == 'SHU-MI' or args.dataset == 'ISRUC' or
             args.dataset == 'CHB-MIT' or args.dataset == 'BCICIV2a' or args.dataset == 'SEED-VIG' or
-            args.dataset == 'STRESS' or
+            args.dataset == 'STRESS' or args.dataset == 'TUAB_CBR' or
             args.dataset == 'MentalArithmetic' or args.dataset == 'BCIC-IV-2a'):
         dataloadertype = 'CBRamode'
     else:

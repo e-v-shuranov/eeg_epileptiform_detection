@@ -41,13 +41,15 @@ class CustomDataset(Dataset):
         data = pair['sample']
         data = np.delete(data, [16, 18], axis=0)
         # data[:16] + data[17:18] + data[19:]
-        label = pair['label']
-        return data, label
+        label = int(pair['label'])
+        return data, key, label
 
     def collate(self, batch):
-        x_data = np.array([x[0] for x in batch])
-        y_label = np.array([x[1] for x in batch])
-        return to_tensor(x_data), to_tensor(y_label).long()
+        # x_data = np.array([x[0] for x in batch])
+        # y_label = np.array([x[1] for x in batch])
+        # return to_tensor(x_data), to_tensor(y_label).long()
+        xs, files, ys = zip(*batch)
+        return to_tensor(xs), list(files), to_tensor(ys).long()
 
     def __getstate__(self):
         state = self.__dict__.copy()

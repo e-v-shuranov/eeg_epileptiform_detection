@@ -28,12 +28,14 @@ class CustomDataset(Dataset):
         selected_time_index = random.randint(0, 25)
         seq = seq[selected_event_index].reshape(6, 30, 200)[:,selected_time_index:selected_time_index+5,:]
         label = np.load(label_path)[selected_event_index]
-        return seq, label
+        return seq, seq_path, label
 
     def collate(self, batch):
-        x_seq = np.array([x[0] for x in batch])
-        y_label = np.array([x[1] for x in batch])
-        return to_tensor(x_seq), to_tensor(y_label).long()
+        # x_seq = np.array([x[0] for x in batch])
+        # y_label = np.array([x[1] for x in batch])
+        # return to_tensor(x_seq), to_tensor(y_label).long()
+        xs, files, ys = zip(*batch)
+        return to_tensor(xs), list(files), to_tensor(ys).long()
 
 
 class LoadDataset(object):

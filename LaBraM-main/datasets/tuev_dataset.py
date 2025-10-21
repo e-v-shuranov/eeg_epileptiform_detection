@@ -29,7 +29,7 @@ class CustomDataset(Dataset):
         label = int(data_dict['label'][0]-1)
         # data = signal.resample(data, 1000, axis=-1)
         data = data[:16].reshape(16, 5, 200)
-        return data/100, file, label
+        return data, file, label
 
     def collate(self, batch):
         # x_data = np.array([x[0] for x in batch])

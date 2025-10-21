@@ -32,13 +32,14 @@ class CustomDataset(Dataset):
         data = pair['sample']
         label = pair['label']
         # print(label)
-        return data/100, label
+        return data, key, label
 
     def collate(self, batch):
-        x_data = np.array([x[0] for x in batch])
-        y_label = np.array([x[1] for x in batch])
-        return to_tensor(x_data), to_tensor(y_label)
-
+        # x_data = np.array([x[0] for x in batch])
+        # y_label = np.array([x[1] for x in batch])
+        # return to_tensor(x_data), to_tensor(y_label)
+        xs, files, ys = zip(*batch)
+        return to_tensor(xs), list(files), to_tensor(ys).long()
 
 class LoadDataset(object):
     def __init__(self, params):
@@ -49,6 +50,8 @@ class LoadDataset(object):
         train_set = CustomDataset(self.datasets_dir, mode='train')
         val_set = CustomDataset(self.datasets_dir, mode='val')
         test_set = CustomDataset(self.datasets_dir, mode='test')
+        if 'labram' in self.params.model:   # if Labram - it should be labram_base_patch200_200
+            return train_set, val_set, test_set
         print(len(train_set), len(val_set), len(test_set))
         print(len(train_set)+len(val_set)+len(test_set))
         data_loader = {

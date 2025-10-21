@@ -613,3 +613,61 @@ STRESS
 --pos_weight 3
 --patch_embed_freeze_epoch 15
 --fixed_chkpt /media/public/eshuranov/eeg_epileptiform_detection/LaBraM-main/checkpoints/finetune_STRESS3/checkpoint.pth
+
+
+
+TUAB_CBR finetune
+--output_dir ./checkpoints/finetune_TUAB_CBR/
+--log_dir ./log/finetune_TUAB_CBR
+--model labram_base_patch200_200
+--finetune ./checkpoints/labram-base.pth
+--weight_decay 0.05
+--batch_size 512
+--lr 5e-4
+--update_freq 1
+--warmup_epochs 3
+--epochs 30
+--layer_decay 0.65
+--drop_path 0.1
+--dist_eval
+--save_ckpt_freq 5
+--disable_rel_pos_bias
+--abs_pos_emb
+--dataset TUAB_CBR
+--disable_qkv_bias
+--seed 0
+--datasets_dir /media/public/Datasets/cbramod_data/TUAB/process_refine
+--num_workers 10
+--no_pin_mem
+--pos_weight 3
+--check_dataset
+
+
+
+
+
+TUAB_CBR finetune continue
+--output_dir ./checkpoints/finetune_TUAB_CBR2/
+--log_dir ./log/finetune_TUAB_CBR2
+--model labram_base_patch200_200
+--finetune ./checkpoints/labram-base.pth
+--weight_decay 0.05
+--batch_size 512
+--lr 5e-4
+--update_freq 1
+--warmup_epochs 3
+--epochs 30
+--layer_decay 0.65
+--drop_path 0.1
+--dist_eval
+--save_ckpt_freq 5
+--disable_rel_pos_bias
+--abs_pos_emb
+--dataset TUAB_CBR
+--disable_qkv_bias
+--seed 0
+--datasets_dir /media/public/Datasets/cbramod_data/TUAB/process_refine
+--num_workers 10
+--no_pin_mem
+--pos_weight 3
+--fixed_chkpt /media/public/eshuranov/eeg_epileptiform_detection/LaBraM-main/checkpoints/finetune_TUAB_CBR/checkpoint.pth
