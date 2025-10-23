@@ -671,3 +671,65 @@ TUAB_CBR finetune continue
 --no_pin_mem
 --pos_weight 3
 --fixed_chkpt /media/public/eshuranov/eeg_epileptiform_detection/LaBraM-main/checkpoints/finetune_TUAB_CBR/checkpoint.pth
+
+PHYSIO
+
+--eval
+--seed 0
+--model labram_base_patch200_200
+--batch_size 128
+--dataset PHYSIO
+--datasets_dir /media/public/Datasets/cbramod_data/PHYSIO_NEW/processed_average
+--fixed_chkpt /media/public/eshuranov/eeg_epileptiform_detection/LaBraM-main/checkpoints/finetune_PHYSIO/checkpoint-best.pth
+
+
+
+ISRUC
+
+--eval
+--seed 0
+--model labram_base_patch200_200
+--batch_size 128
+--dataset ISRUC
+--datasets_dir /media/public/Datasets/cbramod_data/ISRUC/precessed_filter_35
+--fixed_chkpt /media/public/eshuranov/eeg_epileptiform_detection/LaBraM-main/checkpoints/finetune_ISRUC/checkpoint-best.pth
+
+
+Mumtaz
+
+--eval
+--seed 0
+--model labram_base_patch200_200
+--batch_size 128
+--dataset Mumtaz
+--datasets_dir /media/public/Datasets/cbramod_data/MDDPHCED/processed_lmdb_75hz
+--fixed_chkpt /media/public/eshuranov/eeg_epileptiform_detection/LaBraM-main/checkpoints/finetune_Mumtaz/checkpoint-best.pth
+
+STRESS
+
+--eval
+--seed 0
+--model labram_base_patch200_200
+--batch_size 128
+--dataset STRESS
+--datasets_dir /media/public/Datasets/cbramod_data/STRESS/processed
+--fixed_chkpt /media/public/eshuranov/eeg_epileptiform_detection/LaBraM-main/checkpoints/finetune_STRESS2/checkpoint-best.pth
+
+TUEV
+--eval
+--seed 0
+--model labram_base_patch200_200
+--batch_size 128
+--dataset TUEV
+--datasets_dir /media/public/Datasets/labram_data/TUEV/processed
+--fixed_chkpt /media/public/eshuranov/eeg_epileptiform_detection/LaBraM-main/checkpoints/finetune_tuev_original/checkpoint-best.pth
+
+
+TUAB_CBR
+--eval
+--seed 0
+--model labram_base_patch200_200
+--batch_size 128
+--dataset TUAB_CBR
+--datasets_dir /media/public/Datasets/cbramod_data/TUAB/process_refine
+--fixed_chkpt /media/public/eshuranov/eeg_epileptiform_detection/LaBraM-main/checkpoints/finetune_TUAB_CBR2/checkpoint-best.pth
