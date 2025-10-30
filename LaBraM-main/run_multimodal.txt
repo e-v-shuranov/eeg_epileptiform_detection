@@ -742,7 +742,7 @@ SHU-MI finetune
 --model labram_base_patch200_200
 --finetune ./checkpoints/labram-base.pth
 --weight_decay 0.05
---batch_size 64
+--batch_size 128
 --lr 5e-4
 --update_freq 1
 --warmup_epochs 3
@@ -759,5 +759,14 @@ SHU-MI finetune
 --datasets_dir /media/public/Datasets/cbramod_data/SHU/processed
 --num_workers 10
 --no_pin_mem
---pos_weight 3
---check_dataset
+
+
+SHU
+--eval
+--seed 0
+--model labram_base_patch200_200
+--batch_size 128
+--dataset SHU
+--datasets_dir /media/public/Datasets/cbramod_data/SHU/processed
+--fixed_chkpt /media/public/eshuranov/eeg_epileptiform_detection/LaBraM-main/checkpoints/finetune_SHU/checkpoint-best.pth
+

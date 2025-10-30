@@ -656,8 +656,12 @@ def sanity_check_splits(
             # учтём класс, если он есть
             if y is not None:
                 class_counter[int(y)] += 1
-                if nb_classes is not None and (y < 0 or y >= nb_classes):
-                    out_of_range_labels[int(y)] += 1
+                if nb_classes == 1:
+                    if nb_classes is not None and (y < 0 or y > nb_classes):
+                        out_of_range_labels[int(y)] += 1
+                else:
+                    if nb_classes is not None and (y < 0 or y >= nb_classes):
+                        out_of_range_labels[int(y)] += 1
 
         summary[split_name] = {
             "size": n,

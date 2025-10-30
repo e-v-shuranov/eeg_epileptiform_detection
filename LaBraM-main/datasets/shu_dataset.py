@@ -20,7 +20,7 @@ class CustomDataset(Dataset):
         if mode == 'train':
             random.shuffle(self.keys)
             length = len(self.keys)
-            self.keys = self.keys[:int(length * 0.3)]
+            self.keys = self.keys[:int(length * 0.6)]
 
     def __len__(self):
         return len((self.keys))
