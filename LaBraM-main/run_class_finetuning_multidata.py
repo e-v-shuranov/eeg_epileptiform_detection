@@ -358,7 +358,15 @@ def get_dataset(args):
 
 
     elif args.dataset == 'TUEV':
-        train_dataset, test_dataset, val_dataset = utils_multidata.prepare_TUEV_dataset("/media/public/Datasets/labram_data/TUEV/processed")
+        train_dataset, test_dataset, val_dataset = utils_multidata.prepare_TUEV_dataset(args.datasets_dir)
+        ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
+                    'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
+        ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
+        args.nb_classes = 6
+        metrics = ["accuracy", "balanced_accuracy", "cohen_kappa", "f1_weighted"]
+    elif args.dataset == 'TUEV_CBR':
+        load_dataset = tuev_dataset.LoadDataset(args)
+        train_dataset, val_dataset, test_dataset = load_dataset.get_data_loader()
         ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
                     'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
         ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
@@ -525,6 +533,30 @@ def get_dataset(args):
             'EEG Fz', 'EEG Cz', 'EEG Pz', 'EEG A2-A1'
         ]
         ch_names = _normalize_stress_channels(ch_names_original)
+        args.nb_classes = 1
+        metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
+    elif args.dataset == 'SHU':
+        load_dataset = shu_dataset.LoadDataset(args)
+        dataset_bundle = load_dataset.get_data_loader()
+        if isinstance(dataset_bundle, tuple):
+            train_dataset, val_dataset, test_dataset = dataset_bundle
+        else:
+            train_dataset = dataset_bundle['train'].dataset
+            val_dataset = dataset_bundle['val'].dataset
+            test_dataset = dataset_bundle['test'].dataset
+
+        ch_names_original = [
+            "FP1", "FP2", "FZ", "F3", "F4", "F7", "F8",
+            "FC1", "FC2", "FC5", "FC6",
+            "CZ", "C3", "C4", "T3", "T4",
+            "A1", "A2",
+            "CP1", "CP2", "CP5", "CP6",
+            "PZ", "P3", "P4",
+            "T5", "T6",
+            "PO3", "PO4",
+            "OZ", "O1", "O2",
+        ]
+        ch_names = ch_names_original
         args.nb_classes = 1
         metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
     return train_dataset, test_dataset, val_dataset, ch_names, metrics
@@ -992,7 +1024,7 @@ def main(args, ds_init):
         args=args, model=model, model_without_ddp=model_without_ddp,
         optimizer=optimizer, loss_scaler=loss_scaler, model_ema=model_ema)
     if (args.dataset == 'Mumtaz' or args.dataset == 'FACED' or args.dataset == 'SEED-V' or
-            args.dataset == 'PHYSIO' or args.dataset == 'SHU-MI' or args.dataset == 'ISRUC' or
+            args.dataset == 'PHYSIO' or args.dataset == 'SHU' or args.dataset == 'ISRUC' or
             args.dataset == 'CHB-MIT' or args.dataset == 'BCICIV2a' or args.dataset == 'SEED-VIG' or
             args.dataset == 'STRESS' or args.dataset == 'TUAB_CBR' or
             args.dataset == 'MentalArithmetic' or args.dataset == 'BCIC-IV-2a'):
