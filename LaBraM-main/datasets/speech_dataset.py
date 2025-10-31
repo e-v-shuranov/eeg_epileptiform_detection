@@ -26,16 +26,15 @@ class CustomDataset(Dataset):
         with self.db.begin(write=False) as txn:
             pair = pickle.loads(txn.get(key.encode()))
         data = pair['sample']
-        label = pair['label']
+        label =  int(pair['label'])
         # print(key)
         # print(data.shape)
         # print(label)
-        return data/100, label
+        return data, key, label
 
     def collate(self, batch):
-        x_data = np.array([x[0] for x in batch])
-        y_label = np.array([x[1] for x in batch])
-        return to_tensor(x_data), to_tensor(y_label).long()
+        xs, files, ys = zip(*batch)
+        return to_tensor(np.array(xs)), list(files), to_tensor(np.array(ys)).long()
 
 
 class LoadDataset(object):
@@ -47,6 +46,9 @@ class LoadDataset(object):
         train_set = CustomDataset(self.datasets_dir, mode='train')
         val_set = CustomDataset(self.datasets_dir, mode='val')
         test_set = CustomDataset(self.datasets_dir, mode='test')
+        if 'labram' in getattr(self.params, 'model', '').lower():
+            return train_set, val_set, test_set
+
         print(len(train_set), len(val_set), len(test_set))
         data_loader = {
             'train': DataLoader(
