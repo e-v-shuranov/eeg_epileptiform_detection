@@ -1064,6 +1064,7 @@ def main(args, ds_init):
             mode=args.mixup_mode,
             label_smoothing=args.smoothing if args.smoothing > 0 else 0.0,
             num_classes=args.nb_classes,
+            device=device,
         )
 
     if args.nb_classes == 1:
