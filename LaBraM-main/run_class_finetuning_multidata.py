@@ -148,6 +148,30 @@ def get_args():
     parser.add_argument('--fixed_chkpt', default='',
                         help='path for fixed checkpoint for evaluation or continue')
 
+    # Augmentation parameters
+    parser.add_argument('--mixup', type=float, default=0.0,
+                        help='mixup alpha, set >0 to enable mixup')
+    parser.add_argument('--cutmix', type=float, default=0.0,
+                        help='cutmix alpha, set >0 to enable cutmix')
+    parser.add_argument('--mixup_prob', type=float, default=1.0,
+                        help='probability of applying mixup or cutmix')
+    parser.add_argument('--mixup_switch_prob', type=float, default=0.5,
+                        help='probability of switching between mixup and cutmix when both enabled')
+    parser.add_argument('--mixup_mode', type=str, default='batch',
+                        help='how to apply mixup/cutmix (batch, pair, elem)')
+    parser.add_argument('--speech_jitter_std', type=float, default=0.0,
+                        help='relative std-dev for Gaussian jitter noise (× channel std)')
+    parser.add_argument('--speech_jitter_prob', type=float, default=0.0,
+                        help='probability of applying jitter noise per sample')
+    parser.add_argument('--speech_time_shift_pct', type=float, default=0.0,
+                        help='max absolute time shift as a fraction of window length (e.g. 0.1 = 10%)')
+    parser.add_argument('--speech_time_shift_prob', type=float, default=0.0,
+                        help='probability of applying time shift per sample')
+    parser.add_argument('--speech_channel_dropout_prob', type=float, default=0.0,
+                        help='probability of dropping random channels per sample')
+    parser.add_argument('--speech_channel_dropout_max_pct', type=float, default=0.0,
+                        help='max fraction of channels to zero out during dropout')
+
     parser.add_argument('--log_dir', default=None,
                         help='path where to tensorboard log')
     parser.add_argument('--device', default='cuda',
@@ -1029,6 +1053,20 @@ def main(args, ds_init):
         args.weight_decay, args.weight_decay_end, args.epochs, num_training_steps_per_epoch)
     print("Max WD = %.7f, Min WD = %.7f" % (max(wd_schedule_values), min(wd_schedule_values)))
 
+    mixup_fn = None
+    mixup_active = (args.mixup > 0.0 or args.cutmix > 0.0) and args.nb_classes > 1
+    if mixup_active:
+        mixup_fn = Mixup(
+            mixup_alpha=args.mixup,
+            cutmix_alpha=args.cutmix,
+            prob=args.mixup_prob,
+            switch_prob=args.mixup_switch_prob,
+            mode=args.mixup_mode,
+            label_smoothing=args.smoothing if args.smoothing > 0 else 0.0,
+            num_classes=args.nb_classes,
+            device=device,
+        )
+
     if args.nb_classes == 1:
         pos_weight_tensor = None
         if args.pos_weight is not None:
@@ -1037,6 +1075,8 @@ def main(args, ds_init):
         else:
             print("Using BCEWithLogitsLoss without pos_weight; consider setting --pos_weight=N_neg/N_pos for imbalanced splits")
         criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight_tensor)
+    elif mixup_active:
+        criterion = SoftTargetCrossEntropy()
     elif args.smoothing > 0.:
         criterion = LabelSmoothingCrossEntropy(smoothing=args.smoothing)
     else:
@@ -1118,8 +1158,9 @@ def main(args, ds_init):
             device, epoch, loss_scaler, args.clip_grad, model_ema,
             log_writer=log_writer, start_steps=epoch * num_training_steps_per_epoch,
             lr_schedule_values=lr_schedule_values, wd_schedule_values=wd_schedule_values,
-            num_training_steps_per_epoch=num_training_steps_per_epoch, update_freq=args.update_freq, 
-            ch_names=ch_names, is_binary=args.nb_classes == 1, dataloadertype=dataloadertype
+            num_training_steps_per_epoch=num_training_steps_per_epoch, update_freq=args.update_freq,
+            ch_names=ch_names, is_binary=args.nb_classes == 1, dataloadertype=dataloadertype,
+            mixup_fn=mixup_fn,
         )
 
         if args.output_dir and args.save_ckpt:

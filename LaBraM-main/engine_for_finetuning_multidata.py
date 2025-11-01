@@ -33,7 +33,8 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     device: torch.device, epoch: int, loss_scaler, max_norm: float = 0,
                     model_ema: Optional[ModelEma] = None, log_writer=None,
                     start_steps=None, lr_schedule_values=None, wd_schedule_values=None,
-                    num_training_steps_per_epoch=None, update_freq=None, ch_names=None, is_binary=True, dataloadertype=''):
+                    num_training_steps_per_epoch=None, update_freq=None, ch_names=None, is_binary=True,
+                    dataloadertype='', mixup_fn=None):
     input_chans = None
     # ch_names=ch_names[:16]
     if ch_names is not None:
@@ -78,12 +79,21 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             print("!!!!!!!!!!!!!!!!samples was_fixed!!!!!!!!!!!!!!")
             pass
 
+        raw_targets = targets.to(device, non_blocking=True)
+        if is_binary:
+            metrics_target = raw_targets.float().unsqueeze(-1)
+        else:
+            metrics_target = raw_targets
+
+        if mixup_fn is not None:
+            samples, targets = mixup_fn(samples, raw_targets)
+            metrics_target_for_logging = raw_targets
+        else:
+            targets = metrics_target
+            metrics_target_for_logging = metrics_target
+
         if dataloadertype != 'CBRamode':
             samples = rearrange(samples, 'B N (A T) -> B N A T', T=200)
-        
-        targets = targets.to(device, non_blocking=True)
-        if is_binary:
-            targets = targets.float().unsqueeze(-1)
 
         if loss_scaler is None:
             samples = samples.half()
@@ -138,16 +148,19 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
         torch.cuda.synchronize()
 
+        metrics_output = torch.sigmoid(output).detach().cpu().numpy()
+        metrics_target_np = metrics_target_for_logging.detach().cpu().numpy()
         if is_binary:
-            metrics = utils_multidata.get_metrics(torch.sigmoid(output).detach().cpu().numpy(), targets.detach().cpu().numpy(), ["accuracy","balanced_accuracy"], is_binary)
-            class_acc =metrics["accuracy"]
-            b_acc =metrics["balanced_accuracy"]
-            # class_acc = utils_multidata.get_metrics(torch.sigmoid(output).detach().cpu().numpy(), targets.detach().cpu().numpy(), ["accuracy"], is_binary)["accuracy"]
+            metrics = utils_multidata.get_metrics(metrics_output, metrics_target_np, ["accuracy", "balanced_accuracy"], is_binary)
+            class_acc = metrics["accuracy"]
+            b_acc = metrics["balanced_accuracy"]
         else:
-            metrics = utils_multidata.get_metrics(torch.sigmoid(output).detach().cpu().numpy(), targets.detach().cpu().numpy(), ["accuracy","balanced_accuracy"], is_binary)
-            # class_acc =metrics["accuracy"]
-            b_acc =metrics["balanced_accuracy"]
-            class_acc = (output.max(-1)[-1] == targets.squeeze()).float().mean()
+            metrics = utils_multidata.get_metrics(metrics_output, metrics_target_np, ["accuracy", "balanced_accuracy"], is_binary)
+            b_acc = metrics["balanced_accuracy"]
+            hard_targets = metrics_target_for_logging.detach()
+            if hard_targets.ndim > 1:
+                hard_targets = hard_targets.squeeze(-1)
+            class_acc = (output.max(-1)[-1] == hard_targets.long()).float().mean()
             
         metric_logger.update(loss=loss_value)
         metric_logger.update(class_acc=class_acc)
