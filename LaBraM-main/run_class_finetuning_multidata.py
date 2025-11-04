@@ -806,7 +806,7 @@ def main(args, ds_init):
     print(args)
 
     # device = torch.device(args.device)
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     # fix the seed for reproducibility
     seed = args.seed + utils_multidata.get_rank()
@@ -1063,8 +1063,7 @@ def main(args, ds_init):
             switch_prob=args.mixup_switch_prob,
             mode=args.mixup_mode,
             label_smoothing=args.smoothing if args.smoothing > 0 else 0.0,
-            num_classes=args.nb_classes,
-            device=device,
+            num_classes=args.nb_classes
         )
 
     if args.nb_classes == 1:

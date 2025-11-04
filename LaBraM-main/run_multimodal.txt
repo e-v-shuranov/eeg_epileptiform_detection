@@ -770,9 +770,9 @@ SHU
 --datasets_dir /media/public/Datasets/cbramod_data/SHU/processed
 --fixed_chkpt /media/public/eshuranov/eeg_epileptiform_detection/LaBraM-main/checkpoints/finetune_SHU/checkpoint-best.pth
 
-SPEECH
---output_dir ./checkpoints/finetune_SPEECH/
---log_dir ./log/finetune_SPEECH
+SPEECH - experiments
+--output_dir ./checkpoints/finetune_SPEECH5/
+--log_dir ./log/finetune_SPEECH5
 --model labram_base_patch200_200
 --finetune ./checkpoints/labram-base.pth
 --weight_decay 0.05
@@ -782,7 +782,7 @@ SPEECH
 --warmup_epochs 3
 --epochs 30
 --layer_decay 0.65
---drop_path 0.1
+--drop_path 0.2
 --dist_eval
 --save_ckpt_freq 5
 --disable_rel_pos_bias
@@ -794,3 +794,57 @@ SPEECH
 --num_workers 10
 --no_pin_mem
 --check_dataset
+
+  --mixup 0.2
+
+  --cutmix 0.0
+  --mixup_prob 0.8
+
+  --mixup_switch_prob 0.0
+  --speech_jitter_std 0.15
+  --speech_jitter_prob 0.6
+  --speech_time_shift_pct 0.12
+  --speech_time_shift_prob 0.7
+  --speech_channel_dropout_prob 0.3
+  --speech_channel_dropout_max_pct 0.25
+  --drop 0.01
+
+SPEECH Final    finetune_SPEECH10 - with --patch_embed_freeze_epoch 80 finetune_SPEECH11 without freeze, only augmentation
+  --output_dir ./checkpoints/finetune_SPEECH11/
+--log_dir ./log/finetune_SPEECH11
+--model labram_base_patch200_200
+--finetune ./checkpoints/labram-base.pth
+--weight_decay 0.05
+--batch_size 128
+--lr 5e-4
+--update_freq 1
+--warmup_epochs 3
+--epochs 100
+--layer_decay 0.65
+--drop_path 0.2
+--dist_eval
+--save_ckpt_freq 5
+--disable_rel_pos_bias
+--abs_pos_emb
+--dataset SPEECH
+--disable_qkv_bias
+--seed 0
+--datasets_dir /media/public/Datasets/cbramod_data/Imagined_speech/processed
+--num_workers 10
+--no_pin_mem
+--check_dataset
+--mixup 0.2
+  --speech_jitter_std 0.15
+  --speech_jitter_prob 0.6
+  --speech_time_shift_pct 0.12
+  --speech_time_shift_prob 0.7
+
+
+  SPEECH
+--eval
+--seed 0
+--model labram_base_patch200_200
+--batch_size 128
+--dataset SPEECH
+--datasets_dir  /media/public/Datasets/cbramod_data/Imagined_speech/processed
+--fixed_chkpt /media/public/eshuranov/eeg_epileptiform_detection/LaBraM-main/checkpoints/finetune_SPEECH11/checkpoint-best.pth
